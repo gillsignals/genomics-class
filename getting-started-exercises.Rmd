@@ -1,0 +1,63 @@
+---
+title: "Untitled"
+author: "Amy Gill"
+date: "7/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Getting Started Exercises #1
+
+Read in the file femaleMiceWeights.csv and report the exact name of the column containing the weights.
+
+```{r}
+dat <- read.csv("femaleMiceWeights.csv")
+head(dat)    # inspect first 6 rows
+names(dat)    # show column names
+names(dat[2])    # name of second column
+```
+
+## Getting Started Exercises #2
+
+The `[` and `]` symbols can be used to extract specific rows and specific columns of the table. What is the entry in the 12th row and second column?
+
+```{r}
+dat[12,2]
+```
+
+## Getting Started Exercises #3
+
+You should have learned how to use the `$` character to extract a column from a table and return it as a vector. Use `$` to extract the weight column and report the weight of the mouse in the 11th row.
+
+```{r}
+dat$Bodyweight[11]
+```
+
+## Getting Started Exercises #4
+
+The `length` function returns the number of elements in a vector. How many mice are included in our dataset?
+
+
+```{r}
+length(dat$Bodyweight)
+```
+
+## Getting Started Exercises #5
+
+To create a vector with the numbers 3 to 7, we can use seq(3,7) or, because they are consecutive, 3:7. View the data and determine what rows are associated with the high fat or hf diet. Then use the mean function to compute the average weight of these mice.
+
+```{r}
+mean(dat$Bodyweight[13:24])
+```
+
+## Getting Started Exercises #6
+
+```{r}
+set.seed(1, sample.kind = "Rounding")
+i <- sample( 13:24, 1)
+dat$Bodyweight[i]
+```
+

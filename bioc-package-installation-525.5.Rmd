@@ -1,0 +1,96 @@
+---
+title: "Bioconductor installation instructions"
+author: "Amy Gill"
+date: "7/29/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Installing R and RStudio
+
+If you have not yet installed R or used R before, we **strongly recommend** you work through a basic R course such as [Data Science: R Basics](https://www.edx.org/course/data-science-r-basics-2). You are expected to know the basics of R such as installing packages.
+
+You can install R with the following resources: ...
+
+## R packages used in this course
+
+This course will use the following R packages in addition to Bioconductor packages described later:
+
+```{r}
+install.packages(c("MASS", "tidyverse", "png", "R.utils"))
+```
+
+
+## Installing Bioconductor
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install()
+```
+
+## Installing Bioconductor packages
+
+Bioconductor packages have a different installation process from standard R packages.
+
+To install Bioconductor packages, use `BiocManager::install(<package_name>)`, substituting your desired package for `<package_name>`. Note that you will likely get several messages while installing and may get several prompts to update packages and install packages from their source version. We recommend you update to the most recent versions when prompted.
+
+We use a variety of Bioconductor packages in this course. Several of these packages are quite large; for example, BSgenome.Hsapiens.UCSC.hg19 is 656MB and SNPlocs.Hsapiens.dbSNP142.GRCh37 is 480 MB. If you have a slow internet connection you will want to install these well in advance.
+
+The following Bioconductor packages are used in this course:
+
+```{r}
+# definitely used
+BiocManager::install(c("BSgenome.Hsapiens.UCSC.hg19",
+                       "SNPlocs.Hsapiens.dbSNP142.GRCh37",
+                       "SNPlocs.Hsapiens.dbSNP144.GRCh37",
+                       "Homo.sapiens",
+                       "IRanges",
+                       "GenomicRanges",
+                       "airway",
+                       "genefu",
+                       "gwascat",
+                       "SummarizedExperiment",
+                       "hgu133aprobe",
+                       "hgu133a.db",
+                       "ArrayExpress",
+                       "BSgenome.Hsapiens.UCSC.hg19.masked",
+                       "Gviz",
+                       "AnnotationHub",
+                       "DT",
+                       "erma",
+                       "minfi",
+                       "IlluminaHumanMethylation450kmanifest",
+                       "IlluminaHumanMethylation450kanno.ilmn12.hg19",
+                       "MultiAssayExperiment",
+                       "RaggedExperiment",
+                       "SNPlocs.Hsapiens.dbSNP142.GRCh37",
+                       "RNAseqData.HNRNPC.bam.chr14",
+                       "VariantTools",
+                       "KEGGREST",
+                       "rols",
+                       "GSEABase",
+                       "hgu133plus2.db")) 
+```
+
+If you get an R error stating that a Bioconductor package is not found while working on the problem sets, you do not have that package installed. Install the package with `BiocManager::install(<package_name>)`.
+
+## Installing the course-specific package
+
+### Installing devtools
+
+### Installing packages from GitHub
+
+
+```{r}
+library(devtools)
+install_github("genomicsclass/ph525x")
+install_github("genomicsclass/tissuesGeneExpression")
+install_github("genomicsclass/GSE5859Subset")
+install_github("genomicsclass/ERBS")
+install_github("genomicsclass/mapooling")
+```
+

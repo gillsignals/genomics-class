@@ -1,0 +1,606 @@
+---
+title: "525.6 assessments"
+author: "Amy Gill"
+date: "8/8/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## ggbio assessment
+
+### Q1
+
+```{r}
+library(ERBS)
+library(ggbio)
+library(GenomeInfoDb)
+data(GM12878)
+seqlevels(GM12878) = seqlevels(GM12878)[1:24]
+  autoplot(GM12878, layout="karyogram", aes(colour=log(peak)))
+```
+
+### Q2
+
+```{r}
+library(ERBS)
+data(HepG2)
+data(GM12878)
+HepG2$cell = "HepG2"
+GM12878$cell = "Bcell"
+tot = c(GM12878, HepG2)
+tot$peak10 = tot$peak/10 # copes with automatic scale of y axis
+seqlevels(tot, pruning.mode="coarse") = paste0("chr", 1:22)
+library(ggbio)
+library(scales)
+p = autoplot(seqinfo(tot))
+p = p + layout_karyogram(tot, aes(fill=cell, colour=cell), geom="rect") +
+    scale_colour_manual(values = alpha(c("green", "red"), .1)) +
+    scale_fill_manual(values = alpha(c("green", "red"), .1))
+p + layout_karyogram(tot, aes(x=start, y=peak10), ylim=c(15,30),
+    geom="point", color="blue", size=.8)
+```
+
+```{r}
+stot = split(tot, as.character(seqnames(tot)))
+w = sapply(stot, function(x) sum(width(x)))
+sort(w/seqlengths(tot)[names(w)])
+```
+
+### Q3
+
+```{r}
+showz = function (sym = "ESRRA", radius = 1e+05) 
+{
+    require(ggbio)
+    require(erma)
+    require(ERBS)
+    es = genemodel(sym)
+    data(HepG2)
+    data(GM12878)
+    hsub = subsetByOverlaps(HepG2, es + radius)
+    gsub = subsetByOverlaps(GM12878, es + radius)
+    tracks(gene = es, hepNarr = autoplot(hsub), gmNarr = autoplot(gsub), 
+        title = sym)
+}
+```
+
+```{r}
+p = showz()
+p
+```
+
+```{r}
+sym <- "ESRRA"
+radius <- 1e+05
+es <- genemodel(sym)
+hsub <- subsetByOverlaps(HepG2, es + radius)
+es+radius
+```
+
+**PROBLEMS**
+
+## Gviz function assessment
+
+### Q1
+
+```{r}
+esrraScan = function (sym = "ESRRA", bindingGR, radius = 500000)
+ {
+     require(ERBS)
+     require(Gviz)
+     require(Homo.sapiens)
+     require(TxDb.Hsapiens.UCSC.hg19.knownGene)
+     txdb = TxDb.Hsapiens.UCSC.hg19.knownGene
+     eid = AnnotationDbi::select(Homo.sapiens, keys = sym, keytype = "SYMBOL",
+         columns = "ENTREZID")
+     allg = genes(txdb)
+     must_concat = FALSE
+     curgAddr = genes(txdb, single.strand = FALSE, filter = list(gene_id = eid$ENTREZID))[[1]]
+     if (length(curgAddr) > 1) {
+         must_concat = TRUE
+         curgAddr$gene_id = eid$ENTREZID
+         curgAddr = curgAddr[which(as.character(seqnames(curgAddr)) %in%
+             paste0("chr", c(1:22, "X", "Y")))[1]]
+     }
+     curgNeigh = subsetByOverlaps(allg, curgAddr + radius)
+     if (must_concat)
+         curgNeigh = c(curgNeigh, curgAddr)
+     curgNeigh$symbol = mapIds(Homo.sapiens, keys = curgNeigh$gene_id,
+         keytype = "ENTREZID", column = "SYMBOL")
+     sc = subsetByOverlaps(bindingGR, range(curgNeigh))
+     message("getting ideogram...")
+     idxTrack = IdeogramTrack(genome = "hg19", chr = as.character(seqnames(curgNeigh[1])))
+     message("done.")
+     plotTracks(list(idxTrack, GenomeAxisTrack(), DataTrack(sc[,
+         7], name = "ESRRA peak values"), GeneRegionTrack(curgNeigh,
+         showId = TRUE, name = paste("genes near", sym)), GenomeAxisTrack()))
+ }
+
+```
+
+### Q2
+
+```{r}
+
+esrraScan = function (sym = "ESRRA",listOfBindingGR, radius = 500000)
+ {
+     require(ERBS)
+     require(Gviz)
+     require(Homo.sapiens)
+     require(TxDb.Hsapiens.UCSC.hg19.knownGene)
+     txdb = TxDb.Hsapiens.UCSC.hg19.knownGene
+     eid = AnnotationDbi::select(Homo.sapiens, keys = sym, keytype = "SYMBOL",
+         columns = "ENTREZID")
+     allg = genes(txdb)
+     must_concat = FALSE
+     curgAddr = genes(txdb, single.strand = FALSE, filter = list(gene_id = eid$ENTREZID))[[1]]
+     if (length(curgAddr) > 1) {
+         must_concat = TRUE
+         curgAddr$gene_id = eid$ENTREZID
+         curgAddr = curgAddr[which(as.character(seqnames(curgAddr)) %in%
+             paste0("chr", c(1:22, "X", "Y")))[1]]
+     }
+     curgNeigh = subsetByOverlaps(allg, curgAddr + radius)
+     if (must_concat)
+         curgNeigh = c(curgNeigh, curgAddr)
+     curgNeigh$symbol = mapIds(Homo.sapiens, keys = curgNeigh$gene_id,
+         keytype = "ENTREZID", column = "SYMBOL")
+     sc = subsetByOverlaps(bindingGR, range(curgNeigh))
+     message("getting ideogram...")
+     idxTrack = IdeogramTrack(genome = "hg19", chr = as.character(seqnames(curgNeigh[1])))
+     message("done.")
+     plotTracks(list(idxTrack, GenomeAxisTrack(), DataTrack(sc[,
+         7], name = "ESRRA peak values"), GeneRegionTrack(curgNeigh,
+         showId = TRUE, name = paste("genes near", sym)), GenomeAxisTrack()))
+ }
+conl = lapply( listOfBindingGR, function(x) subsetByOverlaps(x, range(curgNeigh) ) )
+```
+
+
+
+
+
+## Visualizing NGS Data
+
+```{r}
+
+```
+
+## Shiny for gene expression clustering: Assessment
+
+### Q1
+
+```{r}
+library(Biobase)
+library(hgu133a.db)
+library(ph525x)
+
+esHclust = function(es) {
+  emat = t(exprs(es))
+  rownames(emat) = sampleNames(es)
+  dd = data.frame(emat)
+  dfHclust(dd)
+}
+
+library(tissuesGeneExpression)
+data(tissuesGeneExpression)
+tgeES = ExpressionSet(e)
+annotation(tgeES) = "hgu133a.db"
+pData(tgeES) = tab
+featureNames(tgeES) =
+  make.names(mapIds(hgu133a.db, keys=featureNames(tgeES),
+    keytype="PROBEID", column="SYMBOL"), unique=TRUE)
+sampleNames(tgeES) = make.names(tgeES$Tissue, unique=TRUE)
+```
+
+```{r}
+tgeES
+sum(is.na(rownames(exprs(tgeES))))
+```
+
+### Q2
+
+```{r}
+esHclust(tgeES[1:50,1:50])
+```
+
+### Q3/4
+
+```{r}
+library(limma)
+mm = model.matrix(~Tissue, data=pData(tgeES))
+f1 = lmFit(tgeES, mm)
+ef1 = eBayes(f1)
+sig50 = rownames(ef1$coef[order(ef1$F,decreasing=TRUE)[1:50],])
+```
+
+```{r}
+esHclust( tgeES[sig50,] )
+```
+
+### Q5
+
+```{r}
+sig5 = c("IL26", "ZNF674", "UBC.1", "C7orf25.1", "RPS13")
+library(MLInterfaces)
+library(randomForest)
+set.seed(1234)
+rf2 = MLearn(Tissue~., tgeES[sig5,], randomForestI, xvalSpec("NOTEST"))
+RObject(rf2)
+```
+
+## parallel assessment
+
+
+```{r}
+library(parallel)
+ detectCores()
+ options(mc.cores=8)
+ system.time( mclapply(1:8, function(x) Sys.sleep(1) ) )
+```
+
+## Assessment: Introduction to managed distributed computing with BatchJobs
+
+### Q1
+
+```{r}
+library(BatchJobs)  # sequential by default
+reg1 = makeRegistry("tmp1", packages=c("RNAseqData.HNRNPC.bam.chr14", "GenomicAlignments", "Rsamtools"))
+library(RNAseqData.HNRNPC.bam.chr14)
+fns = RNAseqData.HNRNPC.bam.chr14_BAMFILES
+batchMap(reg1, readGAlignments, fns)
+submitJobs(reg1, 1)
+waitForJobs(reg1)
+```
+
+```{r}
+length(loadResult(reg1, 1))
+```
+
+### Q2
+
+```{r}
+submitJobs(reg1, findNotDone(reg1))
+waitForJobs(reg1)
+```
+
+```{r}
+median(getJobInfo(reg1)$memory)
+```
+
+### Q3
+
+```{r}
+lens = reduceResults( reg1, fun= function(aggr, job, res)
+    c(aggr, length(res)), init=NULL)
+sum(lens)
+```
+
+## Assessment: basics of the SQLite back-end
+
+### Q1
+
+```{r}
+package.version("GO.db")
+```
+
+```{r}
+library(GO.db)
+con = GO.db$conn 
+```
+
+```{r}
+library(DBI)
+dbGetQuery(con, "select count(*) from go_term")
+```
+
+### Q2
+
+```{r}
+library(microbenchmark)
+m1 = microbenchmark(
+ dbGetQuery(GO.db$conn, "select term from go_term"), times=10L, unit="ms")
+m2 = microbenchmark(
+ keys(GO.db, keytype="TERM"), times=10L, unit="ms")
+```
+
+```{r}
+summary(m2)[,"median"]/summary(m1)[,"median"]
+```
+
+## Assessment - working with TABIX-indexed BAM and VCF files
+
+### Q1
+
+```{r}
+library(RNAseqData.HNRNPC.bam.chr14)
+library(GenomicAlignments)
+library(ERBS)
+data(GM12878)
+seqlevels(GM12878, pruning.mode="coarse") = "chr14"
+library(Rsamtools)
+parm = ScanBamParam(which=GM12878)
+tab = summarizeOverlaps( GM12878, RNAseqData.HNRNPC.bam.chr14_BAMFILES,
+    param=parm)
+```
+
+
+```{r}
+sum(apply(assay(tab),1,function(x)all(x==0)))
+```
+
+### Q2
+
+```{r}
+mm = ScanBamParam(which=rowRanges(tab)[5], what="mapq")
+bf = RNAseqData.HNRNPC.bam.chr14_BAMFILES
+kk = scanBam(bf[1], param=mm)
+```
+
+```{r}
+length(kk$`chr14:93552286-93553668`$mapq)
+
+mean(kk$`chr14:93552286-93553668`$mapq)
+
+mm = ScanBamParam(which=rowRanges(tab)[30], what="mapq")
+countBam(bf[1], param=mm)$records
+
+q2 = scanBam(bf[1], param=mm)
+mean(q2[[1]][[1]])
+```
+
+### Q3
+
+```{r}
+library(geuvPack)
+library(VariantAnnotation)
+gtpath
+```
+
+```{r}
+h22 = scanVcfHeader(gtpath(22))
+```
+
+## Out of memory assessment
+
+```{r}
+library(ph525x)
+b1 = benchOOM()
+```
+
+## Assessment: Comparing transcription regulators in S. cerevisiae
+
+### Q1
+
+```{r}
+library(harbChIP)
+data(harbChIP)
+sv = qqnorm(exprs(harbChIP)[,"MCM1"], main="Mcm1 binding scores")
+topb = names(sort(exprs(harbChIP)[,"MBP1"], decreasing=TRUE)[1:5])
+points(sv$x[topb], sv$y[topb], col="red", pch=19)
+```
+
+### Q2
+
+```{r}
+library(yeastCC)
+data(spYCCES)
+alp = spYCCES[, spYCCES$syncmeth=="alpha"]
+nm = names(which.max(exprs(harbChIP)[,"MCM1"]))
+nm2 = names(which.max(exprs(harbChIP)[,"MBP1"]))
+plot(exprs(alp)[nm,]~alp$time, ylab=paste0(nm, " expression"), type="l", ylim=c(-1,1))
+lines(exprs(alp)[nm2,]~alp$time, ylab=paste0(nm, " expression"),
+  col="purple")
+legend(40, -.6, lty=1, col=c("black", "purple"), legend=c("MCM1", "MBP1"))
+```
+
+## Assessment: Phenorelevance of DNA variants under ESRRA binding peaks
+
+### Q1
+
+```{r}
+library(ERBS)
+data(GM12878)
+library(gwascat)
+data(gwrngs19)
+fo = findOverlaps(GM12878, reduce(gwrngs19))
+length(fo)
+```
+
+```{r}
+length(unique(queryHits(fo)))
+```
+
+### Q2
+
+```{r}
+library(ph525x)
+library(gwascat)
+rg = reduce(gwrngs19)
+set.seed(1234)
+rsc = sapply(1:100, function(x)
+     length(findOverlaps(reposition(GM12878), rg)))
+mean(rsc > length(fo))
+```
+
+## Assessment: siRNA knockdown in a pancreatic cancer cell line
+
+### Q1
+
+```{r}
+library(GEOquery)
+pc1 = getGEO("GSE35463")[[1]]
+pc1$source_name_ch1
+```
+
+```{r}
+colnames(exprs(pc1))[14]
+```
+
+### Q2
+
+```{r}
+library(hugene10sttranscriptcluster.db)
+select(hugene10sttranscriptcluster.db, keys="NUPR1", keytype="SYMBOL",
+ columns="PROBEID")
+```
+
+### Q3
+
+```{r}
+pc1$data_processing
+```
+
+### Q4
+
+```{r}
+eshift = exprs(pc1)["8000574", 7:10] - exprs(pc1)["8000574", 11:14]
+shapiro.test(eshift)
+```
+
+### Q5
+
+```{r}
+t.test(eshift)$p.value
+```
+
+## Assessment: Working with TCGA Firehose Outputs
+
+### Q1
+
+```{r}
+options(digits=3)
+library(ph525x)
+data(readES)
+library(limma)
+mm = model.matrix(~t_stage, data=pData(readES))
+f1 = lmFit(readES, mm)
+ef1 = eBayes(f1)
+topTable(ef1,2:4, n=20)
+```
+
+```{r}
+nrow(topTable(ef1,2:4, n=20)[topTable(ef1,2:4, n=20)$adj.P.Val <= .105,])
+```
+
+### Q2
+
+```{r}
+readES$numts = as.numeric(factor(readES$t_stage))
+mm2 = model.matrix(~numts, data=pData(readES))
+f2 = lmFit(readES,mm2)
+ef2 = eBayes(f2)
+topTable(ef2,2, n=50)
+```
+
+```{r}
+nrow(topTable(ef2,2, n=50)[topTable(ef2,2, n=50)$adj.P.Val <= .105,])
+
+```
+
+### Q3
+
+```{r}
+boxplot(exprs(readES)["COMP",]~readES$t_stage)
+```
+
+### Q4
+
+```{r}
+library(ph525x)
+data(readMuts)
+par(mfrow=c(4,1), mar=c(3,4,2,2))
+rfs2 = rfs = list()
+for(i in 1:4) rfs[[i]] = rainfall(readMuts, oind=i)
+```
+
+### Q5
+
+```{r}
+par(mfrow=c(4,1), mar=c(3,4,2,2))
+for (i in 1:4) rfs2[[ i ]] = rainfall(readMuts, oind=i, inbw=1e7)
+```
+
+```{r}
+subj1 = rfs2[[1]]
+s1den = subj1$density
+s1tgd = subj1$mutGR$totalgd
+intden1 = approx(s1den$x, s1den$y, s1tgd)$y
+topd1ind = which.max(intden1)
+subj1$mutGR[topd1ind,1:6]
+```
+
+```{r}
+subj1$mutGR[topd1ind,]$Hugo_Symbol
+```
+
+### Q6
+
+```{r}
+subj2 = rfs2[[2]]
+s2den = subj2$density
+s2tgd = subj2$mutGR$totalgd
+intden2 = approx(s2den$x, s2den$y, s2tgd)$y
+topd2ind = which.max(intden2)
+subj2$mutGR[topd2ind,]$Hugo_Symbol
+
+```
+
+### Q7
+
+```{r}
+readMuts$NCBI_Build[1]
+```
+
+## Object structure assessment
+
+```{r}
+juxta = function (chrname="chr22", ...) 
+{
+    require(ERBS)
+    data(HepG2)
+    data(GM12878)
+    require(ggbio)
+    require(GenomicRanges)  # "subset" is overused, need import detail
+    ap1 = autoplot(GenomicRanges::subset(HepG2, seqnames==chrname))
+    ap2 = autoplot(GenomicRanges::subset(GM12878, seqnames==chrname))
+    tracks(HepG2 = ap1, Bcell = ap2, ...)
+  }
+```
+
+```{r}
+package.skeleton("erbsViz", "juxta")
+```
+
+```{r}
+install.packages("erbsViz", repos=NULL, type="source")
+```
+
+```{r}
+library(erbsViz)
+```
+
+## An OrganismDb for C elegans assessment
+
+### Q1
+
+```{r}
+gd = list(join1 = c(GO.db="GOID", org.Ce.eg.db="GO"),
+                join2 = c(org.Ce.eg.db="ENTREZID",
+                          TxDb.Celegans.UCSC.ce6.ensGene="GENEID"))
+```
+
+### Q2
+
+```{r}
+makeOrganismPackage("Cen.ele6", gd, "C. elegans", "1.0.0", "me <me@abc.com>", 
+      "me <me@abc.com>", ".")
+```
+
+```{r}
+gd
+```
+

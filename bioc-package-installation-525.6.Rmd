@@ -1,0 +1,35 @@
+---
+title: "Packages to install for 525.6"
+author: "Amy Gill"
+date: "8/8/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 
+
+```{r installpackages}
+install.packages("microbenchmark")
+install.packages("bigmemory")
+
+BiocManager::install("MLInterfaces")
+BiocManager::install("BatchJobs")
+BiocManager::install("geuvPack")
+BiocManager::install("harbChIP")
+BiocManager::install("yeastCC")
+BiocManager::install("hugene10sttranscriptcluster.db")
+```
+
+
+```{r loadpackages}
+library(GenomeInfoDb)
+library(ggbio)
+```
+
+```{r}
+install.packages("bigmemory")
+```
+

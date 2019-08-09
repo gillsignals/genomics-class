@@ -1,0 +1,1380 @@
+---
+title: "intro to bioconductor problems"
+author: "Amy Gill"
+date: "7/31/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Startup assessment
+
+In human genome reference build hg19, what is the length of chromosome 16?
+Use the `Hsapiens` object from the `BSgenome.Hsapiens.UCSC.hg19` package.
+
+```{r message=FALSE}
+library(BSgenome.Hsapiens.UCSC.hg19)
+length(Hsapiens$chr16)
+```
+
+## Gene signature assessment
+
+### Q1
+
+```{r}
+BiocManager::install("genefu")
+```
+
+A data.frame with information on the 70 gene signature used in the mammaprint algorithm is in the sig.gene70 data.frame. You can have a look at this:
+
+```{r}
+library(genefu)
+data(sig.gene70)
+dim(sig.gene70)
+head(sig.gene70)[,1:6]
+```
+
+You can see from this that there are 70 records in the data frame, and that there are diverse ways of describing the "genes" in the signature.
+
+How many components of the signature have a missing value for the associated NCBI gene symbol?
+Remember to use is.na, never == NA.
+
+```{r}
+sum(is.na(sig.gene70$NCBI.gene.symbol))
+```
+
+### Q2
+
+How many
+
+```{r}
+length(grep("kinase", sig.gene70$Description))
+```
+
+## Phenotypes assessment
+
+```{r}
+BiocManager::install("COPDSexualDimorphism.data")
+library(COPDSexualDimorphism.data)
+data(lgrc.expr.meta)    # adds object expr.meta to workspace
+```
+
+```{r}
+table(expr.meta$gender)
+```
+
+```{r}
+summary(expr.meta$pkyrs)
+```
+
+```{r}
+qqnorm(expr.meta$pkyrs)
+qqline(expr.meta$pkyrs)
+```
+
+```{r}
+boxplot(pkyrs~gender, data=expr.meta)
+```
+
+...variable transformation?
+
+Use the code `expr.meta$pyp1 = expr.meta$pkyrs+1` to define a positive-valued variable for transformation analysis.
+
+Then load the MASS package (`library(MASS)`) and fit the model `lm1 = lm(pyp1~gender, data=expr.meta)` that tests for a difference in mean pack years (plus 1) between genders.
+
+Finally, use `boxcox(lm1)` to see a plot of the likelihood function for a transformation model. Under this model we use a number denoted lambda that for our purposes is used as an exponent to transform the dependent variable pyp1 of the regression to have a distribution that is approximately Gaussian. Thus, if lambda is 1, we use pyp1 untransformed, if lambda is 0.5, we use sqrt(pyp1), and so on.
+
+For what value of lambda does the likelihood reach its highest value for the model lm1?
+
+```{r}
+expr.meta$pyp1 = expr.meta$pkyrs+1
+library(MASS)
+lm1 <- lm(pyp1~gender, data=expr.meta)
+boxcox(lm1, lambda = seq(0,1,0.1))
+?boxcox
+```
+
+```{r}
+lambda <- 0.5
+boxplot(I(pyp1^lambda)~gender, data=expr.meta)
+```
+
+## Chromosomes and SNPS assessment
+
+```{r}
+# check if package is installed and, if not, install the package
+if(!require("BSgenome.Hsapiens.UCSC.hg19")){
+    BiocManager::install("BSgenome.Hsapiens.UCSC.hg19")
+}
+
+# load package and inspect genome
+library(BSgenome.Hsapiens.UCSC.hg19)
+BSgenome.Hsapiens.UCSC.hg19
+```
+
+```{r}
+chr11seq <- BSgenome.Hsapiens.UCSC.hg19[["chr11"]]
+```
+
+
+The `countPattern` function takes two arguments - a pattern and a string to search - and returns the number of times that pattern occurs inside the string. You can read more in the help file with `?countPattern`.
+
+Which of the following sequences is most common on chromosome 11: "ATG", "TGA", "TAA", "TAG"?
+
+
+```{r}
+patterns <- c("ATG", "TGA", "TAA", "TAG")
+counts <- sapply(patterns, function(x) countPattern(x, chr11seq))
+which.max(counts)    # top pattern
+max(counts)    # pattern count
+```
+
+
+Now we move to a question about chromosome 7. `alphabetFrequency` returns the number of times each letter appears in a string. You can read more in the help page for `alphabetFrequency`.
+
+Determine what proportion of chromosome 7 is T,C,G, and A. Note that we have other letters. For example N, which represents positions that are not called, appears often.
+
+What proportion of bases on chromosome 7 are Cs (including counts of N in the total)?
+Look for an optional argument to `alphabetFrequency` that reports this value.
+
+```{r}
+?alphabetFrequency
+chr7seq <- BSgenome.Hsapiens.UCSC.hg19[["chr7"]]
+alphabetFrequency(chr7seq, as.prob = TRUE)
+```
+
+
+
+```{r}
+if(!require("SNPlocs.Hsapiens.dbSNP144.GRCh37")){
+    BiocManager::install("SNPlocs.Hsapiens.dbSNP144.GRCh37")
+}
+```
+
+```{r}
+library(SNPlocs.Hsapiens.dbSNP144.GRCh37)
+snps144 = SNPlocs.Hsapiens.dbSNP144.GRCh37
+s17 = snpsBySeqname(snps144, "17")
+head(s17)
+```
+
+
+```{r}
+s17[which(s17$RefSNP_id=="rs73971683")]
+```
+
+```{r}
+library(gwascat)
+data(ebicat37)
+ebicat37
+```
+
+```{r}
+sort(table(ebicat37$CHR_ID),decreasing=TRUE)[1]
+```
+
+```{r}
+sort(table(mcols(ebicat37)[,"DISEASE/TRAIT"]), decreasing = TRUE)[1]
+```
+
+## Gene expression assessment
+
+### Q1
+
+
+```{r}
+library(tissuesGeneExpression)
+data(tissuesGeneExpression)
+head(e[,1:5])
+table(tissue)
+```
+
+```{r}
+library(SummarizedExperiment)
+tissSE = SummarizedExperiment(list(rma=e))
+colData(tissSE) = DataFrame(tab)
+```
+
+
+Look at the data for the feature with ID "209169_at". You can index the rows of `assay(tissSE)` directly with this character string. For example,
+
+```{r}
+mean(assay(tissSE["209169_at",]))
+```
+
+
+This is human data and this gene has the same sequence across all tissues thus there is no difference in gene expression
+*This gene is expressed in the brain but not the other tissues*
+This gene is differentially expressed between all tissues
+The individual to individual variability is much larger than the difference between tissues
+
+
+```{r}
+boxplot(assay(tissSE)["209169_at",]~tissSE$Tissue)
+```
+
+### Q2
+
+```{r}
+IDs = c("201884_at","209169_at", "206269_at","207437_at","219832_s_at","212827_at")
+par(mar=c(6,4,2,2), mfrow=c(3,2))
+for(i in IDs){
+ boxplot(assay(tissSE)[i,]~tissSE$Tissue,las=2,main=i)
+}
+```
+
+### Q3
+
+The affymetrix technology for mRNA abundance measurement is based on hybridization of highly processed biological sample material to synthetic oligonucleotide "probes" that are on fixed positions of the microarray surface. Bioconductor provides detailed information on the probe and array structure as published by affymetrix.
+
+Install and attach the hgu133aprobe and hgu133a.db package, then load hgu133aprobe:
+
+```{r}
+BiocManager::install(c("hgu133aprobe", "hgu133a.db"))
+library(hgu133aprobe)
+```
+
+The field "sequence" gives 25 base-pair sequences of oligonucleotides that are in the 3' UTR region of the gene associated with the array "probe set".
+
+You will learn how to use this information to check for accuracy of annotation, to assess risk of cross-hybridization, etc. This table is essentially a large data.frame.
+
+How many oligos are used to interrogate samples for gene GCM1, annotated to probe 206269_at? You will need to work with the Probe.Set.Name field of the hgu133aprobe data.frame.
+
+```{r}
+sum(hgu133aprobe$Probe.Set.Name=="206269_at")
+```
+
+### Q4
+
+We'll conclude this series with a quick illustration of annotation enhancement of a SummarizedExperiment.
+
+```{r}
+library(hgu133a.db)
+sym = mapIds(hgu133a.db, keys=rownames(tissSE), column="SYMBOL", keytype="PROBEID")
+nm = mapIds(hgu133a.db, keys=rownames(tissSE), column="GENENAME", keytype="PROBEID")
+rowData(tissSE) = DataFrame(symbol=sym, genename=nm)
+```
+
+To restrict attention to genes with 'phosphatase' in their names, use code like:
+
+```{r}
+tissSE[grep("phosphatase", rowData(tissSE)$genename), ]
+```
+
+Set up the rowData for tissSE as noted above.
+
+How many features are annotated to genes with 'kinase' in their name?
+
+```{r}
+nrow(tissSE[ grep("kinase", rowData(tissSE)$genename), ])
+```
+
+## ExpressionSet assessment
+
+### Q1
+
+Let's use the genefu package again to work with breast cancer expression data.
+
+```{r}
+library(Biobase)
+library(genefu)
+data(nkis)
+dim(demo.nkis)
+head(demo.nkis)[,1:8]
+```
+
+Try the following:
+
+```{r}
+nkes = ExpressionSet(data.nkis, phenoData=AnnotatedDataFrame(demo.nkis),
+  featureData=AnnotatedDataFrame(annot.nkis))
+```
+
+How many errors does this generate?
+
+### Q2
+
+What must be done to correct the errors in the previous attempt at making an ExpressionSet?
+
+*transpose the expression data matrix in data.nkis*
+
+```{r}
+nkes = ExpressionSet(t(data.nkis), phenoData=AnnotatedDataFrame(demo.nkis),
+  featureData=AnnotatedDataFrame(annot.nkis))
+```
+
+```{r}
+nkes
+```
+
+
+### Q3
+
+```{r}
+# setup Bioconductor
+library(GEOquery)
+# retrieve the LSC data from GEO
+      lstem = getGEO("GSE3725")
+```
+
+What class is `lstem`?
+
+```{r}
+class(lstem)
+```
+
+### Q4
+
+Use lstem = lstem[[1]] after the command above to obtain a simple reference to the ExpressionSet instance of interest.
+
+How many samples have been hybridized?
+You can use ncol().
+
+```{r}
+lstem <- lstem[[1]]
+```
+
+```{r}
+ncol(lstem)
+```
+
+### Q5
+
+How many features are present on the array used in this experiment?
+
+```{r}
+nrow(lstem)
+```
+
+### Q6
+
+One common difficulty of working with GEO is that the characteristics of different samples are not always easily determined. Sometimes there is no annotation, and sometimes the annotation is present in an unusual field. In this case, the sample characteristic of interest is the type of cell on which expression measures were taken. This can be found using the 'title' field of the pData(lstem). In other words,
+
+```{r}
+pData(lstem)$title 
+```
+
+generates a listing of the cell type descriptions. Let's ignore the first 6 samples:
+
+```{r}
+lstem = lstem[, -c(1:6)] # note position of comma!
+```
+
+There are five different cell types present, identified by text in parentheses:
+
+HSC: hematopoetic stem cells
+GMP: granulocyte macrophage progenitors
+CMP: common myeloid precursors
+MEP: megakaryocyte erythroid progenitors
+L-GMP: GMP-like leukemic cells
+
+How many samples are of type L-GMP?
+
+```{r}
+length(grep("L-GMP", lstem$title))
+```
+
+### Q7
+
+We'll conclude this problem set by producing a heatmap that compares the cell types in a useful way. The data in GEO are apparently not normalized. We will use a very crude approach to achieve constant median on the log scale, after recoding (rare) negative values to zero and then adding 1 to all values.
+
+```{r}
+## perform an elementary normalization
+ee = exprs(lstem)
+ee[ee<0] = 0 
+eee = log(ee+1)
+## boxplot(data.frame(eee))
+meds = apply(eee,2,median)
+tt = t(t(eee)-meds)
+## boxplot(data.frame(tt))
+## assign the normalized values to ExpressionSet
+exprs(lstem) = tt
+```
+
+Now we will modify the feature names to be gene symbols instead of array probe names.
+
+```{r}
+# simplify downstream labeling with gene symbol
+featureNames(lstem) = make.names(fData(lstem)$"Gene Symbol", unique=TRUE)
+```
+
+The following code is somewhat complex, but it simplifies labeling of cell types by stripping away details of marker configurations.
+
+```{r}
+# reformat the naming of cell types
+ct = pData(lstem)[,1]
+ct = as.character(ct)
+cct = gsub(".*(\\(.*\\)).*", "\\1", ct) 
+cct = make.unique(cct)
+cct = gsub(" enriched", "", cct)
+# use the cell types as sample names
+sampleNames(lstem) = cct
+```
+
+Four genes identified in the stemness signature are given in a vector below. We will use these for a small-scale heatmap.
+
+```{r}
+# select some members of the stem cell signature
+inds = which(fData(lstem)$"Gene Symbol" %in% c("Stat1", "Col4a1", "Hoxa9", "Itgb5"))
+```
+
+Finally we can produce the heatmap.
+
+```{r}
+# obtain a simple heatmap
+    heatmap(exprs(lstem[inds,]), Colv=NA)
+```
+
+## IRanges assessment
+
+### Q1
+
+In the previous video we saw a number of functions for manipulating interval ranges:
+
+shift narrow flank * + - range reduce gaps disjoin
+
+This is just a subset of all the possible operations, and remember, the rest are documented in the help pages mentioned in the video and in the book page. We will first do a simple review of these operations, so that you get a sense of using them in your R console. Then we will have a few questions which require more thought.
+
+Load the IRanges package. Define an integer range starting at 101 and ending at 200. If we use the operation *2, this will zoom in, giving us a range with half the width. What is the starting point of the resulting range?
+
+```{r}
+library(IRanges)
+ir <- IRanges(101, 200)
+ir*2
+```
+
+### Q2
+
+Define an integer range starting at 101 and ending at 200. If we use the operation `narrow(x, start=20)`, what is the new starting point of the range?
+
+```{r}
+narrow(ir, start = 20)
+```
+
+### Q3
+
+Define an integer range starting at 101 and ending at 200. If we use the operation +25, what is the width of the resulting range?
+
+```{r}
+ir + 25
+```
+
+### Q4
+
+Define an IRanges with starts at 1,11,21 and ends at 3,15,27. width() gives the widths for each range. What is the sum of the widths of all the ranges?
+
+```{r}
+x <- IRanges(start = c(1,11,21), end = c(3,15,27))
+sum(width(x))
+```
+
+### Q5
+
+Define an IRanges object, x, with the following set of ranges:
+
+Starts at 101,106,201,211,221,301,306,311,351,361,401,411,501
+
+Ends at 150,160,210,270,225,310,310,330,390,380,415,470,510
+
+Plot these ranges using the plotRanges function in the ph525x package. You can install this library, if you have not done so already, with the command `install_github("genomicsclass/ph525x")`
+
+What is the total width from 101 to 510 which is not covered by ranges in x?
+
+```{r}
+starts <- c(101,106,201,211,221,301,306,311,351,361,401,411,501)
+ends <- c(150,160,210,270,225,310,310,330,390,380,415,470,510)
+irs <- IRanges(starts, ends)
+
+library(ph525x)
+plotRanges(irs)
+
+sum(width(gaps(irs)))
+```
+
+### Q6
+
+How many disjoint ranges are contained within the ranges in 'x' from the previous question? By disjoint ranges, we mean the following: for two ranges [1,10] and [6,15], there are three disjoint ranges contained within: [1,5], [6,10], and [11,15].
+
+```{r}
+length(disjoin(irs))
+```
+
+### Q7
+
+An intra-range function we didn't show in the video is resize().
+
+Set up a grid of 2 stacked plots:
+
+```{r}
+par(mfrow=c(2,1))
+```
+
+Now use plotRanges to plot the x from last question, as well as resize(x,1). You will have to set the xlim to make sure that the plots line up vertically. For example, you can use plotRanges(x, xlim=c(0,600)).
+
+What is the best description for the operation resize(x,1)?
+
+```{r}
+plotRanges(irs, xlim = c(101,510))
+plotRanges(resize(irs, 1), xlim = c(101,510))
+```
+
+*it gives you just the starting point of each range*
+
+## GRanges assessment
+
+### Q1
+
+In the first week, in the subsection "What We Measure and Why", we learned that DNA has two strands. These two strands are often called plus, "+", and minus, "-".
+
+The GRanges object in the GenomicRanges package extends the concept of interval ranges in two major ways. The ranges are now also identified by:
+
+1. the chromosome we are referring to (in Bioconductor, this is called "seqnames")
+
+2. the strand of the DNA we are referring to ("+" or "-"). No strand is labelled with a star, "*".
+
+Without these two pieces of information, a specification of a range of DNA would be ambiguous. Let's make two ranges, with strand and chromosome information, and see how the range operations act based on strand.
+
+```{r}
+x = GRanges("chr1", IRanges(c(1,101),c(50,150)), strand=c("+","-"))
+```
+
+In the last assessment, we visualized IRanges with the plotRanges function in the ph525x library. We can get the internal IRanges from a GRanges object with the following code:
+
+So let's define a new plotting function:
+```{r}
+ranges(x)
+plotGRanges = function(x) plotRanges(ranges(x))
+```
+
+```{r}
+par(mfrow=c(1,2))
+plotGRanges(x)
+plotGRanges(resize(x, 1))
+```
+
+```{r}
+resize(x,1)
+```
+
+
+Compare x and resize(x,1) using plotGRanges. The result of running resize(x,1) is two ranges of width 1 which start...
+
+*at the left-most point of the + strand ranges in x, and the right-most point of the - strand ranges in x*
+
+### Q2
+
+Suppose we have two different sets of ranges, which overlap somewhat but not entirely. This is the case for many genes, in which there are different versions of transcripts, also called isoforms. The different transcripts consist of exons which end up in the final mRNA molecule, and a number of transcripts can share exons or have exons which are overlapping but not identical ranges.
+
+We'll start with a toy example, and learn how to load real genes later:
+
+```{r}
+x = GRanges("chr1", IRanges(c(101,201,401,501),c(150,250,450,550)), strand="+")
+y = GRanges("chr1", IRanges(c(101,221,301,401,541),c(150,250,350,470,550)), strand="+")
+```
+
+
+Plot these two sets of ranges using `par(mfrow=c(2,1))` and two calls to `plotGRanges`.
+
+```{r}
+par(mfrow=c(2,1))
+plotGRanges(x)
+plotGRanges(y)
+```
+
+
+If we want to keep the information about which set the ranges belong to, we could combine the two GRanges into a GRangesList:
+
+```{r}
+GRangesList(x,y)
+```
+
+
+However, if we want to combine them into a single GRanges, we can use c():
+
+```{r}
+c(x,y)
+```
+
+
+Find the total width which is covered by ranges in both x and y. Hint: use c(), disjoin() and %over%.
+
+```{r}
+disjoined <- disjoin(c(x,y))
+both <- disjoined %over% x & disjoined %over% y
+sum(width(disjoined[both]))
+```
+
+### Q3
+
+What is the total width which is in x or y but not in both?
+
+```{r}
+sum(width(disjoined[disjoined %over% x & !(disjoined %over% y) | disjoined %over% y & !(disjoined %over% x)]))
+
+```
+
+### Q4
+
+Define a new genomic range, z, which covers range(ranges(x)) but has the opposite strand.
+
+What is the number of ranges in x which overlap z according to the %over% command?
+
+```{r}
+z <- GRanges(seqnames = "chr1", ranges = range(ranges(x)), strand = "-")
+sum(x %over% z)
+```
+
+## findOverlaps assessment
+
+```{r}
+library(ERBS)
+data(HepG2)
+data(GM12878)
+HepG2
+GM12878
+```
+
+### Q1
+
+```{r}
+start(HepG2)[17]
+```
+
+### Q2
+
+```{r}
+d = distanceToNearest(HepG2[17],GM12878)
+i = subjectHits(d)
+start(GM12878[i])
+```
+
+### Q3
+
+```{r}
+d = distanceToNearest(HepG2[17],GM12878)
+mcols(d)$distance
+```
+
+### Q4
+
+```{r}
+d = distanceToNearest(HepG2,GM12878)
+mean( mcols(d)$distance < 2000)
+```
+
+## DataFrame and SummarizedExperiment assessment
+
+## External Data Resources assessment
+
+### Q1
+
+```{r}
+library(erma)
+ee = makeErmaSet()
+class(colData(ee))
+length(names(colData(ee)))  # lots of attributes!
+table(ee$ANATOMY)
+```
+
+### Q2
+
+```{r}
+mydf = colData(ee)[,1:10]
+getClass("DataFrame")
+mydf$demomat = matrix(0, nr=nrow(mydf), nc=5)
+dim(mydf$demomat)
+dim(mydf)
+dim(data.frame(mydf))
+```
+
+```{r}
+library(HDF5Array)
+library(airway)
+td = tempfile()
+saveHDF5SummarizedExperiment(airway, td)
+length(dir(td))
+```
+
+### Q2
+
+```{r}
+X  = readRDS(dir(td, full=TRUE)[2]) 
+class(X)
+class(assay(X)[1,1])
+assay(X)
+```
+
+### Q3
+
+```{r}
+library(erma)
+hn = genemodel("HNRNPC")
+e1 = hn[1]  # first exon in the model
+library(GenomicFiles)
+library(RNAseqData.HNRNPC.bam.chr14)
+gf = GenomicFiles(files=RNAseqData.HNRNPC.bam.chr14_BAMFILES)
+gf
+rowRanges(gf) = e1
+library(GenomicAlignments)
+MAP = function(r, f) 
+    readGAlignmentPairs(f, param=ScanBamParam(which=r))
+ali = reduceByRange(gf, MAP=MAP)
+elementNROWS(ali[[1]]) # use [[1]] as there is only one request
+elementNROWS(ali[[1]])[1]
+```
+
+### Q4
+
+```{r}
+library(erma)
+ermaset = makeErmaSet()
+stateProfile(ermaset[,c(4,6,30,31)], "CD28", short=FALSE)
+```
+
+## Multi-omic TCGA assessment
+
+### Q1
+
+```{r}
+library(MultiAssayExperiment)  # verify 1.4.0 at least
+library(RaggedExperiment)  # verify 1.2.0 at least
+download.file("https://s3.amazonaws.com/bcfound-edx/tcgaLAML.rds", "tcgaLAML.rds")
+laml = readRDS("tcgaLAML.rds")
+length(experiments(laml))
+```
+
+## Introduction to GenomicRanges assessment
+
+### Q1
+
+```{r}
+library(ERBS)
+data(HepG2)
+median( mcols(HepG2)$signalValue )
+```
+
+### Q2
+
+```{r}
+i=which.max(  mcols(HepG2)$signalValue  )
+seqnames(HepG2[i])
+```
+
+### Q3
+
+```{r}
+chr = seqnames(HepG2)
+table(chr)[16]
+```
+
+### Q4
+
+```{r}
+median( width(HepG2) )
+##You can see the histogram
+hist(width(HepG2),nclass=25)
+```
+
+## Genes as GRanges assessment
+
+```{r}
+library(Homo.sapiens)
+ghs = genes(Homo.sapiens)
+```
+
+### Q1
+
+```{r}
+genome(ghs)
+length(ghs)
+```
+
+### Q2
+
+```{r}
+which.max( table( seqnames( ghs ) ))
+```
+
+
+### Q3
+
+```{r}
+w = width( ghs )
+hist( w )
+## the larger values are so much larger than the bulk of the data
+## that we can barely see the frequencies of large values in the histogram 
+mean(w)>median(w) # a typical condition for right-skewed distributions
+```
+
+### Q4
+
+```{r}
+w = width( ghs )
+median(w)
+```
+
+## Finding and getting annotations for GRanges assessment
+
+```{r}
+library(ERBS)
+data(HepG2)
+data(GM12878)
+res = findOverlaps(HepG2,GM12878)
+erbs = HepG2[queryHits(res)]
+erbs = granges(erbs)
+erbs2= intersect(HepG2,GM12878)
+```
+
+### Q1
+
+```{r}
+## first order them
+erbs3 = erbs[order(erbs),]
+##confirm same chr
+all( seqnames(erbs2)==seqnames(erbs3) )
+mean( start(erbs2)==start(erbs3) & end(erbs2)==end(erbs3) )
+##the intersection should be smaller
+all( width(erbs2) <= width(erbs3) )
+```
+
+### Q2
+
+```{r}
+library(Homo.sapiens)
+ghs = genes(Homo.sapiens)
+```
+
+```{r}
+tssgr= resize(ghs,1)
+start(tssgr["100113402"])
+```
+
+### Q3
+
+```{r}
+library(ERBS)
+data(HepG2)
+data(GM12878)
+res = findOverlaps(HepG2,GM12878)
+erbs = HepG2[queryHits(res)]
+erbs = granges(erbs)
+```
+
+```{r}
+library(Homo.sapiens)
+ghs = genes(Homo.sapiens)
+tssgr= resize(ghs,1)
+i = nearest(erbs[4],tssgr)
+mcols(tssgr)$GENEID[i]
+```
+
+### Q4
+
+```{r}
+library(Homo.sapiens)
+ghs = genes(Homo.sapiens)
+tssgr= resize(ghs,1)
+i = nearest(erbs[4],tssgr)
+gene = as.character(mcols(tssgr)$GENEID[i])
+
+select(Homo.sapiens,key=gene,column="SYMBOL",keytype="GENEID")
+```
+
+## Getting Sequence Assessment
+
+### Q1
+
+```{r}
+library(ERBS)
+library(GenomicRanges)
+data(HepG2)
+data(GM12878)
+res = findOverlaps(HepG2,GM12878)
+erbs = HepG2[queryHits(res)]
+erbs = granges(erbs)
+```
+
+```{r}
+genome(erbs)
+```
+
+### Q2
+
+```{r}
+library(BSgenome.Hsapiens.UCSC.hg19)
+```
+
+```{r}
+seqs = getSeq(Hsapiens,erbs)
+gc = alphabetFrequency(seqs)[,2:3]
+n = width(erbs)
+gccontent = rowSums(gc)/n
+median(gccontent)
+```
+
+### Q3
+
+```{r}
+control = shift(erbs,10000)
+controlseqs = getSeq(Hsapiens,control)
+gc = alphabetFrequency(controlseqs)[,2:3]
+n = width(control)
+controlgccontent = rowSums(gc)/n
+median(controlgccontent)
+```
+
+```{r}
+boxplot(gccontent,controlgccontent)
+```
+
+## Reference genomes assessment
+
+### Q1
+
+```{r}
+library(BSgenome)
+grep("mask", grep("Drerio", available.genomes(), value=TRUE), invert=TRUE, value=TRUE) # exclude masked
+```
+
+### Q2
+
+```{r}
+library(BSgenome.Hsapiens.UCSC.hg19.masked)
+c17m = BSgenome.Hsapiens.UCSC.hg19.masked$chr17
+class(c17m)
+```
+
+### Q3
+
+```{r}
+c22m = BSgenome.Hsapiens.UCSC.hg19.masked$chr22
+round(100*sum(width(masks(c22m)$AGAPS))/length(c22m),0)
+```
+
+## Gene and transcript model assessment
+
+```{r}
+library(devtools)
+install_github("genomicsclass/ph525x")
+library(ph525x)
+stopifnot(packageVersion("ph525x") >= "0.0.16") # do over if fail 
+```
+
+### Q1
+
+```{r}
+library(Gviz)
+modPlot("ESR1", useGeneSym=FALSE, collapse=FALSE)
+```
+
+### Q2
+
+```{r}
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+txdb = TxDb.Hsapiens.UCSC.hg19.knownGene
+length(transcripts(txdb, filter=list(gene_id="2099")))
+```
+
+## Import/export assessment
+
+### Q1
+
+```{r}
+library(rtracklayer)
+data(targets)
+class(targets)
+```
+
+### Q2
+
+```{r}
+head(targets)
+```
+
+### Q3
+
+```{r}
+library(GenomicRanges)
+mtar = with(targets,
+GRanges(chrom, IRanges(start,end), strand=strand,
+        targets=target, mirname=name))
+cat(export(mtar[1:5], format="bed"), sep="\n")
+cat("\n")
+cat(export(mtar[1:5], format="gff3"), sep="\n")
+```
+
+## AnnotationHub assessment
+
+```{r}
+library(AnnotationHub)
+ah = AnnotationHub()
+mah = mcols(ah)
+names(mah)
+sort(table(mah$species), decreasing=TRUE)[1:10]
+```
+
+```{r}
+names(query(query(ah, "HepG2"), "CTCF"))
+```
+
+## OrgDb assessment
+
+### Q1
+
+```{r}
+nrow(select(org.Hs.eg.db, keys="17q21.1", keytype="MAP", columns="SYMBOL"))
+```
+
+
+### Q2
+
+```{r}
+m17 = select(org.Hs.eg.db, keys="17q21.1", keytype="MAP", columns=c("SYMBOL", "GO"))
+sort(table(m17$GO), decreasing=TRUE)[1:5]
+```
+
+### Q3
+
+```{r}
+m17 = select(org.Hs.eg.db, keys="17q21.1", keytype="MAP", columns=c("SYMBOL", "GO"))
+nrow(m17[m17$SYMBOL=="ORMDL3" & m17$EVIDENCE == "TAS",])
+```
+
+## Interactive tables for genomic annotation assessment
+
+### Q1
+
+```{r}
+library(Homo.sapiens)
+g = genes(Homo.sapiens)
+library(ERBS)
+data(HepG2)
+kp = g[resize(g,1) %over% HepG2]
+```
+
+
+### Q2
+
+```{r}
+nn = names(kp)
+m = select(Homo.sapiens, keys=nn, keytype="ENTREZID",
+ columns=c("SYMBOL", "GENENAME", "TERM", "GO"))
+library(DT)
+datatable(m)
+```
+
+## Assessment on KEGG
+
+### Q1
+
+```{r}
+library(KEGGREST)
+unlist(keggGet("hsa:3845"))
+length(keggGet("hsa:3845")[[1]]$PATHWAY)
+```
+
+### Q2
+
+```{r}
+library(png)
+oo = keggGet("hsa00790", "image")
+writePNG(oo, "im.png")
+```
+
+## Ontology lookup assessment
+
+### Q1
+
+```{r}
+library(rols)
+diab = OlsSearch("diabetes")
+olsRows(allRows(diab))
+```
+
+### Q2
+
+```{r}
+fulld = olsSearch(allRows(diab))
+adf = as(fulld, "data.frame")
+sort(table(adf$ontology_name), decreasing=TRUE)[1:10]
+```
+
+### Q3
+
+```{r}
+library(DT)
+datatable(adf)
+```
+
+## GSEAbase assessment
+
+### Q1
+
+```{r}
+library(GSEABase)
+glioG = getGmt(system.file("gmt/glioSets.gmt", package="ph525x"))
+```
+
+```{r}
+tt = table(unlist(lapply(1:47, function(x) geneIds(glioG [[ x ]] ))))
+names(tt[which.max(tt)])
+```
+
+### Q2
+
+```{r}
+sum(tt==1)
+```
+
+## Platform oriented annotation assessment
+
+### Q1
+
+```{r}
+library(hgu133plus2.db)
+nrow(select(hgu133plus2.db, keys="EGFR", columns="PROBEID", keytype="SYMBOL"))
+```
+
+### Q2
+
+```{r}
+library(GO.db)
+key <- select(GO.db, keys="glial cell proliferation", keytype="TERM", columns="GOID")$GOID
+nrow(select(hgu133plus2.db, keys=key, columns=c("PROBEID", "SYMBOL"), keytype="GO"))
+```
+
+## Assessment: Translating between reference builds with LiftOver
+
+## Q1
+
+```{r}
+download.file("http://hgdownload.cse.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz",
+  "hg19ToHg38.over.chain.gz")
+library(R.utils)
+gunzip("hg19ToHg38.over.chain.gz")
+```
+
+```{r}
+library(ERBS)
+data(HepG2)
+library(rtracklayer)
+ch = import.chain("hg19ToHg38.over.chain") 
+nHepG2 = liftOver(HepG2, ch)
+```
+
+```{r}
+start(HepG2[1])-start(nHepG2[1])
+```
+
+## Inference Exercises
+
+```{r}
+library(devtools)
+install_github("genomicsclass/maPooling")
+```
+
+```{r}
+library(Biobase)
+library(maPooling)
+data(maPooling)
+pd=pData(maPooling)
+pooled=which(rowSums(pd)==12)
+individuals=which(rowSums(pd)==1)
+##remove replicates
+individuals=individuals[-grep("tr",names(individuals))]
+pool = exprs(maPooling)[,pooled] 
+indiv = exprs(maPooling)[,individuals]
+strain = ifelse(grepl("a",rownames(pData(maPooling))),0,1)
+g_pool = strain[pooled]
+g_indiv = strain[individuals]
+```
+
+### Q1
+
+```{r}
+library(genefilter)
+tech = rowSds(pool[,g_pool==1])
+bio = rowSds(indiv[,g_indiv==1])
+mean(bio>tech)
+## we can also make a plot
+plot(tech,bio)
+abline(0,1,col=2)
+```
+
+### Q2
+
+```{r}
+library(genefilter)
+library(qvalue)
+pvals = rowttests(pool,factor(g_pool))$p.value
+qvals = qvalue(pvals)$qvalue
+sum(qvals < 0.05)
+```
+
+### Q3
+
+```{r}
+library(genefilter)
+library(qvalue)
+pvals = rowttests(pool,factor(g_pool))$p.value
+qvals = qvalue(pvals)$qvalue
+ind = which(qvals<0.05)
+
+pvals2 = rowttests(indiv,factor(g_indiv))$p.value
+mean(pvals2[ind]>=0.05)
+```
+
+### Q4
+
+```{r}
+library(genefilter)
+library(qvalue)
+pvals = rowttests(indiv,factor(g_indiv))$p.value
+qvals = qvalue(pvals)$qvalue
+```
+
+```{r}
+library(limma)
+X = model.matrix(~g_indiv)
+fit = lmFit(indiv,X)
+eb = eBayes(fit)
+pvals2= eb$p.value[,2]
+qvals2= qvalue(pvals2)$qvalue
+sum( qvals2<0.05 & qvals<0.05)/sum(qvals<0.05)
+```
+
+## Gene Set Analysis Assessment
+
+### Q1
+
+```{r}
+var(rowMeans(matrix(rnorm(10000 * 10, 0, 1), ncol=10)))
+```
+
+```{r}
+library(MASS)
+Sigma = matrix(.7, ncol=10, nrow=10)
+diag(Sigma) = 1
+mvrnorm(n=1,mu=rep(0,10),Sigma=Sigma)
+```
+
+```{r}
+set.seed(1234)
+var(rowMeans(mvrnorm(n=10000,mu=rep(0,10),Sigma=Sigma)))
+##Using the formula from lecture:
+1/10 * (1 + (10-1) * .7)
+```
+
+### Q2
+
+```{r}
+library(GEOquery)
+e = getGEO("GSE34313")[[1]]
+```
+
+```{r}
+e$condition = e$characteristics_ch1.2
+levels(e$condition) = c("dex24","dex4","control")
+table(e$condition)
+## Note that with ExpressionSets we can access the phenoData columns directly
+## Specifically, note that e$condition is equivalent to pData(e)$condition
+```
+
+```{r}
+names(fData(e))
+fData(e)$GO_ID[1:4]
+```
+
+```{r}
+lvls = c("control", "dex4")
+es = e[,e$condition %in% lvls]
+es$condition = factor(es$condition, levels=lvls)
+```
+
+```{r}
+library(limma)
+library(qvalue)
+design = model.matrix(~ es$condition)
+fit = lmFit(es, design=design)
+fit = eBayes(fit)
+topTable(fit)[,c(6,7,18,22)]
+```
+
+```{r}
+# Immune response
+set.seed(1)
+idx = grep("GO:0006955", fData(es)$GO_ID)
+length(idx)
+r1 = roast(es, idx, design)
+r1
+```
+
+```{r}
+set.seed(1)
+idx = grep("GO:0045454", fData(es)$GO_ID)
+length(idx)
+r1 = roast(es, idx, design)
+r1[1]$p.value$P.Value[1]
+```
+
+### Q3
+
+```{r}
+library(org.Hs.eg.db)
+org.Hs.egGO2EG
+go2eg = as.list(org.Hs.egGO2EG)
+head(go2eg)
+```
+
+```{r}
+govector = unlist(go2eg)
+golengths = sapply(go2eg, length)
+head(fData(es)$GENE)
+  
+idxvector = match(govector, fData(es)$GENE);table(is.na(idxvector))
+##This is the organized list of indexes for genes per GO term:
+idx = split(idxvector, rep(names(go2eg), golengths))
+##We can see the genes like this:
+go2eg[[1]]
+fData(es)$GENE[idx[[1]]]
+```
+
+```{r}
+idxclean = lapply(idx, function(x) x[!is.na(x)])
+idxlengths = sapply(idxclean, length)
+idxsub = idxclean[idxlengths > 10]
+length(idxsub)
+```
+
+```{r}
+set.seed(1, sample.kind = "default")
+r2 = mroast(es, idxsub, design)
+head(r2)
+```
+
+
+```{r}
+r2[which.max(r2$PropUp),1]
+```
+
+### Q4
+
+```{r}
+size = sapply(idxsub,length)
+idxsub2= idxsub[size>=50]
+r3 = mroast(es, idxsub2, design)
+rownames(r3[which.max(r3$PropUp),])
+```
+
+```{r}
+library(GO.db)
+columns(GO.db)
+keytypes(GO.db)
+AnnotationDbi::select(GO.db, "GO:0000776", "TERM")
+```
+
+```{r}
+```
+
