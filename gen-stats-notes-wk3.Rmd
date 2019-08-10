@@ -1,0 +1,201 @@
+---
+title: "Untitled"
+author: "Amy Gill"
+date: "4/18/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(devtools)
+library(Biobase)
+library(limma)
+library(edge)
+library(genefilter)
+```
+
+Load the Bottomly dataset.
+
+```{r}
+con = url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData")
+load(file=con)
+close(con)
+bot = bottomly.eset
+pdata = pData(bot)
+edata = as.matrix(exprs(bot))
+fdata = fData(bot)
+```
+
+Log transform the data and keep genes with over 10 counts.
+
+```{r}
+edata <- log2(as.matrix(edata) + 1)
+edata <- edata[rowMeans(edata) > 10,]
+```
+
+Calculate t-statistic across strains for every single gene without adjustment.
+
+```{r}
+tstats_obj <- rowttests(edata, pdata$strain)
+names(tstats_obj)
+hist(tstats_obj$statistic)
+```
+
+`rowttests` only works for a 2-group comparison. For a multi-group comparison, use `rowFtests`.
+
+Calculate F-statistic across all genes without adjustment.
+
+```{r}
+fstats_obj <- rowFtests(edata, as.factor(pdata$lane.number))
+names(fstats_obj)
+hist(fstats_obj$statistic)
+```
+
+You can also do a no-adjustment version of the moderated statistic using limma.
+
+```{r}
+mod <- model.matrix(~pdata$strain)
+fit_limma <- lmFit(edata, mod)
+ebayes_limma <- eBayes(fit_limma)    # shrink statistics
+head(ebayes_limma$t)
+```
+
+```{r}
+plot(ebayes_limma$t[,2], -tstats_obj$statistic, xlab = "Moderated T-stat", ylab = "T-stat")
+abline(c(0,1), col="darkgrey", lwd="3")
+```
+
+You can calculate t-statistics adjusted by a variable, in this case lane number.
+
+```{r}
+mod_adj <- model.matrix(~ pdata$strain + as.factor(pdata$lane.number))
+fit_limma_adj <- lmFit(edata, mod_adj)
+ebayes_limma_adj <- eBayes(fit_limma_adj)
+plot(ebayes_limma_adj$t[,2], -tstats_obj$statistic, xlab = "Moderated T-stat", ylab = "T-stat")
+abline(c(0,1), lwd = 3, col = "darkgrey")
+```
+You can create a model for a multi-level factor using limma:
+
+```{r}
+mod_lane <- model.matrix(~as.factor(pdata$lane.number))
+fit_limma_lane <- lmFit(edata, mod_lane)
+ebayes_limma_lane <- eBayes(fit_limma_lane)
+
+# use topTable to find if there are diffs across any groups
+top_lane <- topTable(ebayes_limma_lane, coef = 2:7, number = dim(edata)[1], sort.by = "none")
+head(top_lane)
+```
+
+Plot the multi-level factor model against the F-statistic for this factor:
+
+```{r}
+plot(top_lane$F, fstats_obj$statistic,
+     xlab="Moderated F-statistic", ylab = "F-statistic")
+```
+
+
+In `edge`, you can compute the differential expression with the `lrt` function (likelihood ratio tests).
+
+```{r}
+edge_study <- build_study(edata, grp = as.factor(pdata$lane.number))
+de_obj <- lrt(edge_study)
+qval <- qvalueObj(de_obj)
+plot(qval$stat, fstats_obj$statistic, xlab = "F-stat from edge", ylab = "F-stat from genefilter")
+```
+
+The statistics you get from `genefilter` and `edge` are the same, but with `edge` you can do adjustments. In this case, we adjust the lane number model by strain.
+
+```{r}
+edge_study2 <- build_study(edata, grp = as.factor(pdata$lane.number), adj.var = pdata$strain)
+de_obj2 <- lrt(edge_study2)
+qval2 <- qvalueObj(de_obj2)
+plot(qval2$stat, fstats_obj$statistic, xlab = "F-stat from edge", ylab = "F-stat from genefilter")
+```
+
+## Permutation
+
+- permutation is one of the widely used tools for assessing statistical significance in genomic studies
+
+- consider a dataset with responders and non-responders to a drug (example: lenalidomide in MDS)
+- you could calculate a t-statistic for each gene comparing gene expression in the responders versus non-responders
+- to generate a null distribution for comparison, you could randomly permute the labels (responder vs non-responder)
+- permutation leaves the relationship between the genes unchanged, but breaks the relationship between gene expression and the response variable
+- good because you want to keep the gene-to-gene associations intact for later modeling
+- when you permute the labels and re-compute the statistics, you expect the statistic to be centered around 0
+- assumes that if you switch the labels, the data come from the exact same distribution
+- PERMUTATION IS NOT A COMPARISON OF MEANS
+
+## Permutation in R
+
+This also uses the Bottomly data currently loaded in the dataset. It is log scaled and filtered as described above.
+
+We compute and observe t-statistics for different strains:
+
+```{r}
+tstats_obj <- rowttests(edata, pdata$strain)
+hist(tstats_obj$statistic, xlim = c(-5,2))
+```
+
+To do permutation, we set the seed and then reorder the strains. Then we recompute t-statistics.
+
+```{r}
+set.seed(135)
+strain <- pdata$strain
+strain0 <- sample(strain)
+tstats_obj0 <- rowttests(edata, strain0)
+hist(tstats_obj0$statistic, xlim = c(-5,2))
+```
+
+Here, the t-statistic tends slightly positive even though the mean of permuted statistics should be 0. That suggests there is a covariate we haven't yet accounted for.
+
+```{r}
+quantile(tstats_obj$statistic)
+quantile(tstats_obj0$statistic)
+```
+
+## p-value
+
+**The p-value is the probability of observing a statistic as extreme or more or extreme given that the null hypothesis is true.** It is *not* the probability that the null hypothesis is true. It is *not* the probability that the alternative hypothesis is true. It is *not* strictly a measure of statistical evidence.
+
+If you do permutations, given t-statistics from the permutations \(S_{perm}\) and observed t-statistics \(S_{obs}\), the p-value is:
+
+\(\mbox{p-value} = \frac{\mbox{#} \mid S_{perm} \mid \geq \mid S_{obs} \mid}{\mbox{# of permutations}}\)
+
+The p-value for a well-done genomic experiment will have a spike near 0 and then it will flatten out as you approach 1.
+
+A unique property of the p-value is that it has a uniform distribution under the null hypothesis. Values from 0 to 1 are all equally likely.
+
+Importantly, the p-value histogram is comprised of two distributions: the uniform distribution representing the null hypothesis and the non-uniform distribution from the alternative hypothesis.
+
+The p-value will almost always go to zero as the sample size increases.
+The cutoff of 0.05 is a made-up number.
+P-values shoud always be reported in conjunction with estimates/variances on the scale that is scientifically meaningful.
+
+## multiple testing
+
+the p-value cutoff of 0.05 falls apart with multiple testing...
+
+*family-wise error rate* is probability of finding even one false-positive...extremely stringent : \(\mbox{Pr(# False Positives}\geq 1)\)
+
+*false discovery rate* is expected proportion of discoveries that are false positives = noise level among actual discoveries: \(\mbox{E}[\frac{\mbox{# False Positives}}{\mbox{# Discoveries}}]\)
+
+suppose 50 out of 10,000 genes are significant at 0.05 level
+
+report all genes with p <= 0.05 with no correction: expect 0.05*10000 = 500 false positives
+report all genes at 0.05 false discovery rate: expect 0.05*50 = 2.5 false positives
+report all genes at family-wise error rate 0.05: report only genes such that probability of at least one false positive <= 0.05
+
+*Bonferroni correction* for family-wise error rate - p-values less than \(\alpha/m\) are significant, where \(\alpha\) is generally .05 and \(m\) is the number of p-values (genes/features)
+
+*Benjamini-Hochberg correction* for false discovery rate: order p-values \(p_1,...,p_m\). observation \(i\) is significant if \(p_i \leq \alpha*i/m\)
+
+family-wise error rate correction is used when you expect only a small number of differences and want to be extremely confident in your findings (GWAS)
+
+false discovery rate correction is used when you expect several findings and want to quantify percentages of false-positives (methylation, ChIP-Seq, gene expression)
+
+things that can go wrong: bad model, batch effects...none of the corrections matter if the starting p-values are wrong
+
+http://www.ncbi.nlm.nih.gov/pmc/articles/PMC170937/ = great first read

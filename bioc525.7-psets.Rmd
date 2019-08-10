@@ -133,5 +133,711 @@ library(pasillaBamSubset)
 bam.file <- untreated3_chr4()
 library(Rsamtools)
 bf <- BamFile(bam.file)
+library(TxDb.Dmelanogaster.UCSC.dm3.ensGene)
+txdb <- TxDb.Dmelanogaster.UCSC.dm3.ensGene
+```
+
+### Q1
+
+```{r}
+ebg = exonsBy(txdb, by="gene")
+seqnames(ebg[1])
+```
+
+### Q2
+
+```{r}
+chr4.idx <- all(seqnames(ebg) == "chr4")
+ebg.sub <- ebg[chr4.idx]
+```
+
+```{r}
+library(GenomicAlignments)
+se = summarizeOverlaps(ebg.sub, bf, ignore.strand=TRUE, singleEnd=FALSE)
+head(assay(se), 1)
+```
+
+## Normalization and transformation assessment
+
+### Q1
+
+```{r}
+download.file("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/wang_eset.RData", "wang_eset.RData")
+```
+
+```{r}
+load("wang_eset.RData")
+library(Biobase)
+count.matrix <- exprs(wang.eset)[,10:21]
+col.data <- pData(wang.eset)[10:21,]
+library(DESeq2)
+dds <- DESeqDataSetFromMatrix(count.matrix, col.data, design=~cell.type)
+```
+
+```{r}
+dds$cell.type
+```
+
+```{r}
+dds = estimateSizeFactors(dds)
+dds$cell.type[which.max(sizeFactors(dds))]
+```
+
+### Q2
+
+```{r}
+vsd = varianceStabilizingTransformation(dds, blind=FALSE)
+plotPCA(vsd, intgroup="cell.type")
+```
+
+### Q3
+
+```{r}
+rmeans <- rowMeans(assay(vsd)) # row mean of rlog-transformed data
+idx <- c(1,2,10,7,8,9,12) # pick some samples for visualization
+mat <- assay(vsd)[rmeans > 1,idx] # pull out a small matrix of rlog-transformed counts
+colnames(mat) <- vsd$cell.type[idx] # name the columns of matrix by cell type
+```
+
+```{r}
+panel.sub <- function(x,y,...) points(cbind(x,y)[sample(length(x),1000),],...)
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)  {
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(0, 1, 0, 1))
+  r <- abs(cor(x, y))
+  txt <- format(c(r, 0.123456789), digits = digits)[1]
+  txt <- paste0(prefix, txt)
+  if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+  text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+pairs(mat, asp=1, col=rgb(0,0,0,.3), lower.panel=panel.cor, upper.panel=panel.sub)
+```
+
+```{r}
+colnames(mat[,-7])[ which.max(cor(mat[,7], mat[,-7])) ]
+```
+
+## DE assessment 1
+
+```{r}
+load("wang_eset.RData")
+library(Biobase)
+
+count.matrix <- exprs(wang.eset)[,10:21]
+col.data <- pData(wang.eset)[10:21,]
+library(DESeq2)
+dds <- DESeqDataSetFromMatrix(count.matrix, col.data, design=~cell.type)
+```
+
+```{r}
+dds$type <- factor(ifelse(dds$cell.type %in% c("cerebellum","mixed.brain"), 
+                          "brain", "other"))
+dds$type <- relevel(dds$type, "other")
+
+design(dds) <- ~ type
+```
+
+### Q1
+
+```{r}
+dds = DESeq(dds)
+res = results(dds)
+rownames(res)[which.min(res$padj)]
+```
+
+### Q2
+
+```{r}
+res2 = results(dds, lfcThreshold=2)
+summary(res2)
+```
+
+```{r}
+table(res2$padj < 0.1 & res2$log2FoldChange > 0)
+```
+
+## DE assessment 2
+
+```{r}
+plotCounts(dds, which.min(res$padj), intgroup="type")
+```
+
+```{r}
+par(mfrow=c(3,3))
+for (i in 1:9)  plotCounts(dds, order(res$padj)[i], intgroup="type")
+```
+
+```{r}
+par(mfrow=c(1,1))
+```
+
+```{r}
+top <- rownames(res)[head(order(res$stat, decreasing=TRUE), 20)]
+```
+
+
+### Q1
+
+```{r}
+library(org.Hs.eg.db)                              
+select(org.Hs.eg.db, keys=top, columns="SYMBOL", keytype="ENSEMBL")
+```
+
+### Q2
+
+```{r}
+select(org.Hs.eg.db, keys=top, columns="GENENAME", keytype="ENSEMBL")
+```
+
+## SVA assessment
+
+```{r}
+download.file("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData", "bottomly_eset.RData")
+```
+
+```{r}
+load("bottomly_eset.RData")
+```
+
+
+```{r}
+count.matrix <- exprs(bottomly.eset)
+col.data <- pData(bottomly.eset) 
+library(DESeq2)
+dds <- DESeqDataSetFromMatrix(count.matrix, col.data, design=~strain)
+```
+
+```{r}
+dds$num.tech.reps <- factor(dds$num.tech.reps)
+```
+
+```{r}
+library(sva)
+dat <- counts(dds, normalized=TRUE)
+idx <- rowMeans(dat) > 1
+dat <- dat[idx,]
+mod <- model.matrix(~ strain, colData(dds))
+mod0 <- model.matrix(~ 1, colData(dds))
+svseq <- svaseq(dat, mod, mod0, n.sv=2)
+
+```
+
+## Exon usage assessment
+
+```{r}
+library("pasilla")
+inDir = system.file("extdata", package="pasilla", mustWork=TRUE)        
+countFiles = list.files(inDir, pattern="fb.txt$", full.names=TRUE)    
+flattenedFile = list.files(inDir, pattern="gff$", full.names=TRUE) 
+
+sampleTable = data.frame(row.names = c( "treated1", "treated2", "treated3","untreated1", "untreated2", "untreated3", "untreated4" ), condition = c("knockdown", "knockdown", "knockdown", "control", "control", "control", "control" ))                 
+
+library("DEXSeq")  
+dxd = DEXSeqDataSetFromHTSeq(countFiles, sampleData=sampleTable, 
+  design= ~ sample + exon + condition:exon, flattenedfile=flattenedFile )
+
+rmean = rowMeans(counts(dxd))  
+dxd2L = dxd[seqnames(rowRanges(dxd)) == "chr2L" & rmean > 10,] 
+
+dxd2L = dxd2L[1:1000,]  
+```
+
+### Q1
+
+```{r}
+dxd2L = estimateSizeFactors( dxd2L )                                                                
+dxd2L = estimateDispersions( dxd2L )                                                                
+dxd2L = testForDEU( dxd2L )                                                                         
+dxd2L = estimateExonFoldChanges( dxd2L, fitExpToVar="condition")                                    
+dxr = DEXSeqResults( dxd2L )                                                                        
+rownames(dxr)[ which.min(dxr$padj) ]
+```
+
+## Isoform abundance assessment
+
+```{r}
+library(cummeRbund)
+myDir <- system.file("extdata", package="cummeRbund") 
+gtfFile <- system.file("extdata/chr1_snippet.gtf",package="cummeRbund")
+cuff <- readCufflinks(dir=myDir,gtfFile=gtfFile,genome="hg19",rebuild=TRUE)
+gene.features <- annotation(genes(cuff))
+head(gene.features)
+isoforms.per.gene <- gene.features[!duplicated(gene.features$isoform_id),    c("gene_id","isoform_id")]
+isoforms.per.gene <- isoforms.per.gene[order(isoforms.per.gene$isoform_id),]
+head(isoforms.per.gene)
+```
+
+```{r}
+gene.tab <- table(isoforms.per.gene$gene_id)
+```
+
+### Q1
+
+```{r}
+table(gene.tab)
+```
+
+### Q2
+
+```{r}
+isoform.fpkm <- fpkm(isoforms(cuff))
+head(isoform.fpkm)
+table(isoform.fpkm$sample_name)
+```
+
+```{r}
+ips <- isoform.fpkm[isoform.fpkm$sample_name == "iPS",]
+hesc <- isoform.fpkm[isoform.fpkm$sample_name == "hESC",]
+stopifnot(all(ips$isoform_id == isoforms.per.gene$isoform_id))
+stopifnot(all(hesc$isoform_id == isoforms.per.gene$isoform_id))
+```
+
+### Q2
+
+```{r}
+ips.max = sapply(split(ips$fpkm, isoforms.per.gene$gene_id), which.max)    
+hesc.max = sapply(split(hesc$fpkm, isoforms.per.gene$gene_id), which.max)
+mean(ips.max == hesc.max) 
+```
+
+### Q3
+
+```{r}
+ips.max = sapply(split(ips$fpkm, isoforms.per.gene$gene_id), which.max)    
+hesc.max = sapply(split(hesc$fpkm, isoforms.per.gene$gene_id), which.max)
+mean((ips.max == hesc.max)[ gene.tab > 1 ]) 
+```
+
+## DNA Methylation assessment
+
+### Q1
+
+```{r}
+BiocManager::version()
+```
+
+### Q2
+
+```{r}
+BiocManager::install("minfi")
+package.version("minfi")
+```
+
+### Q5
+
+```{r}
+library(BSgenome.Hsapiens.UCSC.hg19)
+chr22 = Hsapiens[["chr22"]]
+s = subseq(chr22,start=23456789,width=1000)
+print( as.character(s) )
+```
+```{r}
+letterFrequency(s, "CG", as.prob=TRUE)
+```
+
+### Q6
+
+```{r}
+countPattern("CG",s)
+```
+
+### Q7
+
+```{r}
+countPattern("GC",s)
+```
+
+## CpG island assessment
+
+```{r}
+library(AnnotationHub)
+ah = AnnotationHub()
+head(ah)
+```
+
+```{r}
+ah = subset(ah,ah$genome=="hg19")
+```
+
+```{r}
+query(ah,"genes")
+```
+
+### Q1
+
+```{r}
+query(ah, "cpg Islands")
+```
+
+### Q2
+
+```{r}
+library(AnnotationHub)
+ah = AnnotationHub()
+cgi = ah[["AH5086"]]
+```
+
+```{r}
+class(cgi)
+```
+
+### Q3
+
+```{r}
+length(cgi)
+```
+
+### Q4
+
+```{r}
+library(BSgenome.Hsapiens.UCSC.hg19)
+cgiseq= getSeq(Hsapiens,cgi)
+```
+
+```{r}
+genome(cgi)[1:24]
+genome(Hsapiens)[1:24]
+```
+
+```{r}
+res = alphabetFrequency(cgiseq)
+L = rowSums(res)
+cprop = res[,"C"]/L
+median(cprop)
+# or
+median(letterFrequency(cgiseq, "C", as.prob=TRUE))
+# Make a histogram to see they are generally high
+hist(cprop)
+```
+
+### Q5
+
+```{r}
+res = alphabetFrequency(cgiseq)
+L = rowSums(res)
+gprop = res[,"G"]/L
+median(gprop)
+##Make a histogram to see they are generally high
+hist(gprop)
+```
+
+### Q6
+
+```{r}
+library(BSgenome.Hsapiens.UCSC.hg19)
+cgiseq= getSeq(Hsapiens,cgi)
+
+res = alphabetFrequency(cgiseq)
+L = rowSums(res)
+cprop = res[,"C"]/L
+gprop = res[,"G"]/L
+expected = L * cprop * gprop
+observed = vcountPattern("CG",cgiseq)
+cpgoe=observed/expected
+median(cpgoe)
+## We can look at a histogram
+hist(cpgoe)
+abline(v=1,col=2)
+##because these are ratios, better to look at log
+hist(log2 ( cpgoe ))
+abline(v=0,col=2)
+```
+
+```{r}
+observed = vcountPattern("GC",cgiseq)
+gpcoe=observed/expected
+median(gpcoe)
+### We can look at a histogram
+boxplot(list(cpgoe,gpcoe))
+```
+
+### Q8
+
+```{r}
+chr2use = seqlevels(cgi)[1:24]
+index = which( seqnames(cgi) %in% chr2use)
+noncgi = shift(cgi[index],20000)
+library(BSgenome.Hsapiens.UCSC.hg19)
+noncgiseq= getSeq(Hsapiens,noncgi)
+
+nullres = alphabetFrequency(noncgiseq)
+keepIndex=nullres[,"G"]>0 &  nullres[,"C"]>0 & nullres[,"N"]==0
+nullres = nullres[keepIndex,]
+noncgiseq=noncgiseq[keepIndex]
+```
+
+```{r}
+L2 = rowSums(nullres)
+cprop2 = nullres[,"C"]/L2
+gprop2 = nullres[,"G"]/L2
+expected2 = L2 * cprop2 * gprop2
+observed2 = vcountPattern("CG",noncgiseq)
+noncgioe=observed2/expected2
+median(noncgioe)
+## We can compare them
+boxplot(gpcoe,noncgioe,cpgoe)
+```
+
+## Finding differentially methylated regions in R assessment
+
+```{r}
+library(devtools)
+install_github("genomicsclass/coloncancermeth")
+```
+
+```{r}
+library(coloncancermeth)
+data(coloncancermeth)
+dim(meth)
+dim(pd)
+print( gr )
+```
+
+### Q1
+
+```{r}
+table(pd$Status)
+```
+
+```{r}
+names(pd)[ grep("barcode",names(pd)) ]
+##
+which(pd[,1]=="TCGA-A6-4107" & pd$Status=="cancer")
+```
+
+
+### Q2
+
+```{r}
+d = dist( t(meth))
+mds = cmdscale(d)
+cols = as.numeric(pd$Status)
+plot(mds,col=cols)
+legend("topleft",levels(pd$Status),col=1:2,pch=1)
+```
+
+### Q3
+
+```{r}
+library(limma)
+X = model.matrix(~pd$Status)
+fit = lmFit(meth,X)
+eb = eBayes(fit)
+pvals = eb$p.value[,2]
+```
+
+
+```{r}
+library(qvalue)
+qvals = qvalue(pvals)$qvalue
+mean(qvals<=0.05)
+```
+
+### Q4
+
+```{r}
+library(qvalue)
+library(limma)
+X = model.matrix(~pd$Status)
+fit = lmFit(meth,X)
+eb = eBayes(fit)
+pvals = eb$p.value[,2]
+qvals = qvalue(pvals)$qvalue
+
+index = which(qvals <=0.05)
+diffs = fit$coef[index,2]
+mean(diffs > 0)
+```
+
+### Q5
+
+```{r}
+library(AnnotationHub)
+ah = AnnotationHub()
+cgi = ah[["AH5086"]]
+```
+
+```{r}
+##We re-run the code from above
+library(qvalue)
+library(limma)
+X = model.matrix(~pd$Status)
+fit = lmFit(meth,X)
+eb = eBayes(fit)
+pvals = eb$p.value[,2]
+qvals = qvalue(pvals)$qvalue
+index = which(qvals<=0.05)
+
+##Now we can see which CpGs are in islands
+mean(gr[index]%over%cgi)
+```
+
+```{r}
+islands=gr[index]%over%cgi
+hypermethylated=fit$coef[index,2]>0
+prop.table( table(islands,hypermethylated) )
+```
+
+### Q6
+
+```{r}
+library(bumphunter)
+X = model.matrix(~pd$Status)
+chr = as.character(seqnames(gr))
+res = bumphunter(meth,X,chr=chr,pos=start(gr),cutoff=0.1)
+```
+
+```{r}
+head(res$table)
+```
+
+```{r}
+dmrs = res$table[ res$table$L>=3, ]
+```
+
+```{r}
+dmrs = makeGRangesFromDataFrame(dmrs)
+```
+
+```{r}
+##dmrs and cgis are defined above
+map = distanceToNearest(dmrs,cgi)
+d = mcols(map)$distance
+mean(d==0)
+```
+
+### Q7
+
+```{r}
+map = distanceToNearest(dmrs,cgi)
+d = mcols(map)$distance
+mean(d>0 & d<=2000)
+```
+
+## Reading Raw 450K Array Data Assessment
+
+### Q1
+
+```{r}
+BiocManager::install(c("minfi","IlluminaHumanMethylation450kmanifest","IlluminaHumanMethylation450kanno.ilmn12.hg19"))
+```
+
+```{r}
+path <- "idats"
+list.files(path)
+```
+
+```{r}
+targets=read.csv(file.path(path,"targets.csv"),as.is=TRUE)
+names(targets)
+targets$Basename
+```
+
+```{r}
+table(targets$Status)
+```
+
+### Q2
+
+```{r}
+targets$Basename = file.path(path,targets$Basename)
+```
+
+```{r}
+library(minfi)
+rgset = read.metharray(targets$Basename,verbose=TRUE)
+rownames(targets)=sampleNames(rgset)
+  pData(rgset)=targets
+```
+
+```{r}
+dim(getRed(rgset))
+dim(getGreen(rgset))
+```
+
+```{r}
+mset = preprocessIllumina(rgset)
+```
+
+```{r}
+mset = mapToGenome(mset)
+```
+
+```{r}
+dim(getBeta(mset,type="Illumina")) ##the argument type="Illumina" gives us default procedure
+head(granges(mset))
+```
+
+```{r}
+i = which(seqnames(granges(mset))=="chr4" & start(granges(mset))==153807318)
+j = which(rownames(pData(mset))=="5775041068_R04C01")
+getBeta(mset,type="Illumina")[i,j]
+```
+
+### Q3
+
+```{r}
+library(bumphunter)
+class(mset)
+showMethods("bumphunter")
+grset = ratioConvert(mset,what="beta",type="Illumina")
+help("bumphunter,GenomicRatioSet-method")
+```
+
+
+```{r}
+X=model.matrix(~pData(grset)$Status); res=bumphunter(grset,X,cutoff=0.1)
+```
+
+## CpGIslandShores assessment
+
+```{r}
+library(minfi)
+library(IlluminaHumanMethylation450kmanifest)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+```
+
+### Q1
+
+```{r}
+path <- "C:/Users/bioch/Downloads/tcgaMethylationSubset-master/tcgaMethylationSubset-master"
+targets=read.delim(file.path(path,"targets.txt"),as.is=TRUE)
+targets
+```
+
+```{r}
+nrow(targets)
+```
+
+### Q2
+
+```{r}
+sum(targets$Tissue=="colon" & targets$Status=="normal")
+##or look here
+table(targets$Tissue,targets$Status)
+```
+
+### Q3
+
+```{r}
+index = which( targets$Status=="normal" & targets$Tissue%in%c("colon","breast") )
+targets = targets[index,]
+library(minfi)
+dat = read.metharray.exp(base=path,targets = targets, verbose=TRUE)
+class(dat)
+## preprocess the data
+dat = preprocessIllumina(dat)
+class(dat)
+## assign locations to each CpG
+dat = mapToGenome(dat)
+class(dat)
+## precompute methylation values from U and M values
+dat = ratioConvert(dat,type="Illumina")
+class(dat)
+library(rafalib)
+mypar(1,1)
+##extract methylation values
+y = getBeta(dat)
+shist(y)
 ```
 

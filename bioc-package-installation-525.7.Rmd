@@ -1,0 +1,35 @@
+---
+title: "Packages to install for 525.6"
+author: "Amy Gill"
+date: "8/8/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 
+
+```{r installpackages}
+
+BiocManager::install("pasillaBamSubset")
+BiocManager::install("TxDb.Dmelanogaster.UCSC.dm3.ensGene")
+BiocManager::install("sva")
+BiocManager::install("pasilla")
+BiocManager::install("DEXSeq")
+BiocManager::install("cummeRbund")
+
+library(devtools)
+install_github("genomicsclass/coloncancermeth")
+```
+
+
+```{r loadpackages}
+
+```
+
+```{r}
+
+```
+

@@ -1,0 +1,473 @@
+---
+title: "bioconductor-class-quizzes"
+author: "Amy Gill"
+date: "March 11, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Quiz 1
+
+### Q1 and Q2
+
+Use the AnnotationHub package to obtain data on "CpG Islands" in the human genome. How many islands exist on the autosomes? How many islands exist on chromosome 4?
+
+```{r}
+# load AnnotationHub
+source("http://www.bioconductor.org/biocLite.R")
+biocLite(c("rtracklayer"))
+```
+
+```{r}
+library(GenomicRanges)
+```
+
+```{r}
+ah <- AnnotationHub()
+```
+
+```{r}
+query(ah, c("hg19", "CpG islands"))
+```
+
+```{r}
+islands <- ah[["AH5086"]]
+```
+
+```{r}
+islands
+```
+
+```{r}
+seqlevels(islands)
+```
+
+```{r}
+islands <- keepStandardChromosomes(islands, pruning.mode = "coarse")
+```
+
+```{r}
+seqlevels(islands)
+```
+
+```{r}
+islands <- dropSeqlevels(islands, c("chrX", "chrY", "chrM"), pruning.mode = "coarse")
+```
+
+```{r}
+seqlevels(islands)
+```
+
+```{r}
+islands
+```
+
+After filtering for only autosomes, the number of islands is **26641**.
+
+```{r}
+chr4islands <- keepSeqlevels(islands, "chr4", pruning.mode = "coarse")
+chr4islands
+```
+
+ After filtering for chr4, the number of islands is **1031**.
+ 
+### Q3
+
+Obtain the data for the H3K4me3 histone modification for the H1 cell line from Epigenomics Roadmap, using AnnotationHub. Subset these regions to only keep regions mapped to the autosomes (chromosomes 1 to 22).
+
+```{r}
+display(query(ah, c("H3K4me3", "H1", "Roadmap")))
+# selected narrow peaks for H1
+```
+
+
+```{r}
+peaks <- ah[["AH29884"]]
+```
+
+```{r}
+peaks <- keepStandardChromosomes(peaks, pruning.mode = "coarse")
+peaks <- dropSeqlevels(peaks, c("chrX", "chrY", "chrM"), pruning.mode = "coarse")
+seqlevels(peaks)
+```
+
+```{r}
+sum(width(reduce(peaks, ignore.strand = TRUE)))
+```
+
+The peaks cover **41135164** bases.
+
+```{r}
+h3k4me3peaks <- peaks
+```
+
+
+### Q4
+
+Obtain the data for the H3K27me3 histone modification for the H1 cell line from Epigenomics Roadmap, using the AnnotationHub package. Subset these regions to only keep regions mapped to the autosomes. In the return data, each region has an associated "signalValue".
+
+```{r}
+display(query(ah, c("H3K27me3", "H1", "roadmap")))
+# selected row for H1 narrow peaks
+```
+
+```{r}
+h3k27peaks <- ah[["AH29892"]]
+```
+
+```{r}
+h3k27peaks <- keepStandardChromosomes(h3k27peaks, pruning.mode = "coarse")
+h3k27peaks <- dropSeqlevels(h3k27peaks, c("chrX", "chrY", "chrM"), pruning.mode = "coarse")
+seqlevels(h3k27peaks)
+```
+
+```{r}
+mean(h3k27peaks$signalValue)
+```
+
+The mean signal value is **4.770728**.
+
+### Q5
+
+Bivalent regions are bound by both H3K4me3 and H3K27me3.
+
+Question: Using the regions we have obtained above, how many bases on the standard chromosomes are bivalently marked?
+
+
+```{r}
+peaks <- intersect(h3k4me3peaks, h3k27peaks, ignore.strand = TRUE)
+sum(width(peaks))
+```
+
+
+There are **10289096** bivalently marked bases.
+
+
+### Q6
+
+We will examine the extent to which bivalent regions overlap CpG Islands.
+
+Question: how big a fraction (expressed as a number between 0 and 1) of the bivalent regions, overlap one or more CpG Islands?
+
+```{r}
+num_bivalent <- length(peaks)
+overs <- findOverlaps(peaks, islands)
+num_overlap <- length(unique(queryHits(overs)))
+num_overlap/num_bivalent
+```
+
+**0.5383644** is the proportion of bivalent hits overlapping CpG islands.
+
+### Q7
+
+Question: How big a fraction (expressed as a number between 0 and 1) of the bases which are part of CpG Islands, are also bivalent marked
+
+```{r}
+island_bases <- sum(width(reduce(islands, ignore.strand = TRUE)))
+overlap_bases <- sum(width(intersect(islands, peaks, ignore.strand = TRUE)))
+overlap_bases/island_bases
+```
+
+**.241688** is the proportion of CpG island bases that are bivalently marked.
+
+### Q8
+
+```{r}
+island_width <- width(islands)
+island_width_big <- island_width + 20000
+big_islands <- resize(islands, island_width_big, fix = "center")
+sum(width(intersect(big_islands, peaks, ignore.strand = TRUE)))
+```
+
+There are **9782086** bases that are bivalently marked within 10 kb of a CpG island.
+
+### Q9
+
+Question: How big a fraction (expressed as a number between 0 and 1) of the human genome is contained in a CpG Island?
+
+Tip 1: the object returned by AnnotationHub contains "seqlengths".
+
+Tip 2: you may encounter an integer overflow. As described in the session on R Basic Types, you can address this by converting integers to numeric before summing them, "as.numeric()".
+
+```{r}
+genome_size <- as.numeric(sum(seqlengths(islands)))
+island_bases <- sum(width(islands))
+island_bases/genome_size
+```
+
+**.007047481** is the fraction of the genome contained in CpG islands, considering only autosomes.
+
+### Q10
+
+Question: Compute an odds-ratio for the overlap of bivalent marks with CpG islands.
+
+```{r}
+## number of bivalent bases in CpG islands
+overlap_bases <- as.numeric(sum(width(intersect(islands, peaks, ignore.strand = TRUE))))
+
+## number of bivalent bases not in CpG islands
+peak_only <- as.numeric(sum(width(setdiff(peaks, islands, ignore.strand = TRUE))))
+
+## number of CpG island bases that are not bivalent
+island_only <- as.numeric(sum(width(setdiff(islands, peaks, ignore.strand = TRUE))))
+
+## number of bases that are not CpG or bivalent
+not_island_or_bivalent <- genome_size - overlap_bases - peak_only - island_only
+
+## OR
+(overlap_bases * not_island_or_bivalent) / (peak_only * island_only)
+```
+
+The OR for overlap between bivalent marks and CpG islands is **169.0962**.
+
+## Quiz 2
+
+### Question 1
+
+Question: What is the GC content of “chr22” in the “hg19” build of the human genome?
+
+Tip: The reference genome includes “N” bases; you will need to exclude those.
+
+```{r}
+library(BSgenome)
+library("BSgenome.Hsapiens.UCSC.hg19")
+```
+
+```{r}
+letterFrequency(Hsapiens$chr22, "CG", as.prob = TRUE)
+```
+
+```{r}
+alphabetFrequency(Hsapiens$chr22)
+```
+
+```{r}
+a_count <- alphabetFrequency(Hsapiens$chr22)["A"]
+c_count <- alphabetFrequency(Hsapiens$chr22)["C"]
+g_count <- alphabetFrequency(Hsapiens$chr22)["G"]
+t_count <- alphabetFrequency(Hsapiens$chr22)["T"]
+
+gc_count <- g_count + c_count
+total <- a_count + c_count + g_count + t_count
+gc_count/total
+```
+
+The GC content of chr22, ignoring Ns, is **0.4798807**
+
+### Question 2
+
+Background: In the previous assessment we studied H3K27me3 “narrowPeak” regions from the H1 cell line (recall that the Roadmap ID for this cell line is “E003”). We want to examine whether the GC content of the regions influence the signal; in other words wether the reported results appear biased by GC content.
+
+Question: What is mean GC content of H3K27me3 “narrowPeak” regions from Epigenomics Roadmap from the H1 stem cell line on chr 22.
+
+Clarification: Compute the GC content for each peak region as a percentage and then average those percentages to compute a number between 0 and 1.
+
+```{r}
+library(AnnotationHub)
+ah <- AnnotationHub()
+```
+
+```{r}
+query(ah, c("H3K27me3", "E003"))
+```
+
+```{r}
+narrow_peaks <- ah[["AH29892"]]
+chr22_peaks <- keepSeqlevels(narrow_peaks, "chr22", pruning.mode = "coarse")
+chr22_peaks
+```
+
+```{r}
+peak_seqs <- Views(Hsapiens, chr22_peaks)
+peak_seqs
+```
+
+```{r}
+gc_peaks <- letterFrequency(peak_seqs, "GC", as.prob = TRUE)
+mean(gc_peaks)
+```
+
+The mean GC content in peaks on chr22 is **.528866**.
+
+### Question 3
+
+The “narrowPeak” regions includes information on a value they call “signalValue”.
+
+Question: What is the correlation between GC content and “signalValue” of these regions (on chr22)?
+
+```{r}
+cor(chr22_peaks$signalValue, gc_peaks)
+```
+
+The correlation between signal value and GC content is **0.004467924**.
+
+
+### Question 4
+
+The “narrowPeak” regions are presumably reflective of a ChIP signal in these regions. To confirm this, we want to obtain the “fc.signal” data from AnnotationHub package on the same cell line and histone modification. This data represents a vector of fold-change enrichment of ChIP signal over input.
+
+Question: what is the correlation between the “signalValue” of the “narrowPeak” regions and the average “fc.signal” across the same regions?
+
+Clarification: First compute the average “fc.signal” for across each region, for example using “Views”; this yields a single number of each region. Next correlate these numbers with the “signalValue” of the “narrowPeaks”.
+
+```{r}
+fc_signal <- ah[["AH32033"]]
+chr22 < -GRanges(seqnames="chr22",ranges=IRanges(start=1,end=51304566))
+fc_import <- import(fc_signal, which = chr22, as="Rle")
+signal_fc_chr22 <- fc_import$chr22
+signal_fc_chr22
+```
+
+```{r}
+signal_overlap <- aggregate(signal_fc_chr22, chr22_peaks, FUN = mean)
+cor(signal_overlap, chr22_peaks$signalValue)
+```
+The correlation between fc.signal and signalValue is **.9149614**.
+
+### Question 5
+
+Referring to the objects made and defined in the previous question.
+
+Question: How many bases on chr22 have an fc.signal greater than or equal to 1?
+
+```{r}
+ind <- runValue(signal_fc_chr22) >= 1
+sum(runLength(signal_fc_chr22)[ind])
+```
+
+**10914671**
+
+### Question 6
+
+The H1 stem cell line is an embryonic stem cell line, a so-called pluripotent cell. Many epigenetic marks change upon differentiation. We will examine this. We choose the cell type with Roadmap ID “E055” which is foreskin fibroblast primary cells.
+
+We will use the “fc.signal” for this cell type for the H3K27me3 mark, on chr22. We now have a signal track for E003 and a signal track for E055. We want to identify regions of the genome which gain H3K27me3 upon differentiation. These are regions which have a higher signal in E055 than in E003. To do this properly, we would need to standardize (normalize) the signal across the two samples; we will ignore this for now.
+
+Question: Identify the regions of the genome where the signal in E003 is 0.5 or lower and the signal in E055 is 2 or higher.
+
+Tip: If you end up with having to intersect two different Views, note that you will need to convert the Views to IRanges or GRanges first with \verb|ir <- as(vi, "IRanges")|ir<-as(vi,"IRanges").
+
+```{r}
+query(ah, c("E055", "H3K27me3", "fc.signal"))
+```
+
+```{r}
+e055_signal <- ah[["AH32470"]]
+```
+
+```{r}
+e003_chr22 <- signal_fc_chr22
+e055_import <- import(e055_signal, which = chr22, as="Rle")
+e055_chr22 <- e055_import$chr22
+e055_views <- slice(e055_chr22, lower = 2)
+e003_views <- slice(e003_chr22, upper = 0.5)
+e055_ir <- as(e055_views, "IRanges")
+e003_ir <- as(e003_views, "IRanges")
+intersect(e055_ir, e003_ir)
+```
+
+```{r}
+sum(width(intersect(e055_ir, e003_ir)))
+```
+
+There are **1869937** bases in differentially methylated regions.
+
+
+### Question 7
+
+CpG Islands are dense clusters of CpGs. The classic definition of a CpG Island compares the observed to the expected frequencies of CpG dinucleotides as well as the GC content.
+
+Specifically, the observed CpG frequency is just the number of “CG” dinucleotides in a region. The expected CpG frequency is defined as the frequency of C multiplied by the frequency of G divided by the length of the region.
+
+Question: What is the average observed-to-expected ratio of CpG dinucleotides for CpG Islands on chromosome 22?
+
+```{r}
+query(ah, c("hg19", "CpG Islands"))
+```
+
+```{r}
+cpg_islands <- ah[["AH5086"]]
+cpg_chr22 <- keepSeqlevels(cpg_islands, "chr22", pruning.mode = "coarse")
+```
+
+```{r}
+island_seqs <- Views(Hsapiens, cpg_chr22)
+c_count <- letterFrequency(island_seqs, "C")
+g_count <- letterFrequency(island_seqs, "G")
+island_width <- width(island_seqs)
+expected_cg <- c_count*g_count/island_width
+cg_count <- dinucleotideFrequency(island_seqs)[, "CG"]
+obs_to_exp_cg <- cg_count/expected_cg
+mean(obs_to_exp_cg)
+```
+
+**.8341** is the ratio between observed and expected.
+
+### Question 8
+
+
+```{r}
+library(BSgenome)
+library("BSgenome.Hsapiens.UCSC.hg19")
+library(Biostrings)
+tata <- DNAString("TATAAA")
+atat <- DNAString("TTTATA")
+length(matchPattern(tata, Hsapiens$chr22)) + length(matchPattern(atat, Hsapiens$chr22))
+tata_ranges <- matchPattern(tata, Hsapiens$chr22)
+tata_ranges <- as(tata_ranges, "IRanges")
+```
+
+There are **27263** TATA boxes on chr22.
+
+### Question 9
+
+Question: How many promoters of transcripts on chromosome 22 containing a coding sequence, contains a TATA box on the same strand as the transcript?
+
+Clarification: Use the TxDb.Hsapiens.UCSC.hg19.knownGene package to define transcripts and coding sequence. Here, we defined a promoter to be 900bp upstream and 100bp downstream of the transcription start site.
+
+```{r}
+library(GenomicRanges)
+library(BSgenome)
+library("BSgenome.Hsapiens.UCSC.hg19")
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+tx <- transcripts(txdb)
+tx_chr22 <- keepSeqlevels(tx, "chr22", pruning.mode = "coarse")
+coding_seqs <- cds(txdb)
+cds_chr22 <- keepSeqlevels(coding_seqs, "chr22", pruning.mode = "coarse")
+
+transcript_lengths <- transcriptLengths(txdb, with.cds_len = TRUE)
+
+transcript_lengths[transcript_lengths$cds_len > 0, ]
+
+nonzero_tx <- transcript_lengths[transcript_lengths$tx_id %in% tx_names  & transcript_lengths$cds_len > 0, ]$tx_id
+
+nonzero_tx_chr22 <- tx_chr22[tx_chr22$tx_id %in% nonzero_tx]
+nonzero_tx_chr22
+
+tx_cds_proms <- promoters(nonzero_tx_chr22, upstream = 900, downstream = 100)
+tx_cds_proms
+views_tx_cds_proms <- Views(Hsapiens, tx_cds_proms)
+views_tx_cds_proms
+
+sum(oligonucleotideFrequency(views_tx_cds_proms, 6)[, "TATAAA"] > 0)
+```
+
+### Question 10
+
+It is possible for two promoters from different transcripts to overlap, in which case the regulatory features inside the overlap might affect both transcripts. This happens frequently in bacteria.
+
+Question: How many bases on chr22 are part of more than one promoter of a coding sequence?
+
+Clarification: Use the TxDb.Hsapiens.UCSC.hg19.knownGene package to define transcripts and coding sequence. Here, we define a promoter to be 900bp upstream and 100bp downstream of the transcription start site. In this case, ignore strand in the analysis.
+
+```{r}
+coverage(tx_cds_proms)
+sum(width(slice(coverage(tx_cds_proms), 2)))
+```
+
+
+There are **306920** bases with coverage by multiple CDS promoters.

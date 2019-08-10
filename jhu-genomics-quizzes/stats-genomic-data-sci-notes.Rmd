@@ -1,0 +1,24 @@
+---
+title: "The Three Tables in Genomics"
+author: "Amy Gill"
+date: "April 2, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This notebook reviews the three tables in genomics: the genomics data, the feature data and the phenotype data. It follows along with Statistics for Genomic Data Science on [Coursera](https://www.coursera.org/learn/statistical-genomics/lecture/3K2XK/the-three-tables-in-genomics-in-r-3-46).
+
+I load the data over a connection into the object `bodymap.eset`.
+
+```{r}
+con = url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bodymap_eset.RData")
+load(file = con)
+close(con)
+```
+
+`bodymap.eset` is an `ExpressionSet` object.

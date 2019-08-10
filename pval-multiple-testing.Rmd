@@ -1,0 +1,178 @@
+---
+title: "P-values and multiple testing"
+author: "Amy Gill"
+date: "4/20/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Biobase)
+library(limma)
+library(edge)
+library(genefilter)
+library(qvalue)
+```
+
+Use the Bottomly expression dataset.
+
+```{r}
+con <- url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData")
+load(file = con)
+close(con)
+bot <- bottomly.eset
+pdata <- pData(bot)
+edata <- as.matrix(exprs(bot))
+fdata <- fData(bot)
+ls()
+```
+
+Log scale and filter out low expression genes.
+
+```{r}
+edata <- log2(as.matrix(edata) + 1)
+edata <- edata[rowMeans(edata) > 10, ]
+```
+
+P-values can be calculated in a couple of different ways. One is using the **genefilter** package and the `rowFtests` function, which automatically calculates parametric p-values for you.
+
+```{r}
+fstats_obj <- rowFtests(edata, as.factor(pdata$strain))
+hist(fstats_obj$p.value, col = 2)
+```
+
+We expect to see a spike of p-value around 1. This pattern is absent, which leads us to suspect that our model is wrong. There might be an overlooked adjustment variable.
+
+A second way to calculate unmoderated p-values is with the **edge** package.
+
+```{r}
+edge_study <- build_study(edata, grp = pdata$strain, adj.var = as.factor(pdata$lane.number))
+de_obj <- lrt(edge_study)    # likelihood ratio test
+qval <- qvalueObj(de_obj)
+hist(qval$pvalues, col = 3)
+```
+
+This still does not fit our model, suggesting something more needs to be taken into account.
+
+If we want the moderated p-values form the moderated statistics, we can use **limma** and invoke the `topTable` function.
+
+```{r}
+mod <- model.matrix(~ pdata$strain + pdata$lane.number)
+
+fit_limma <- lmFit(edata, mod)    # fit linear model
+ebayes_limma <- eBayes(fit_limma)    # shrink estimates
+limma_pvals <- topTable(ebayes_limma, number = dim(edata)[1])$P.Value
+
+top_table$P.Value
+
+hist(limma_pvals, col = 2)
+```
+
+
+```{r}
+library(RColorBrewer)
+```
+
+```{r}
+palette(brewer.pal(n=8, name = "Set2"))
+```
+
+
+```{r}
+hist(limma_pvals, col = 3)
+```
+
+No matter what method we use, the p-value distribution doesn't quite fit our model. We might be missing a variable or our modeling strategy might not be quite right.
+
+We can also calculate p-values empirically by doing simulations. We can calculate t-statistics by using `rowttests` from the **genefilter** package.
+
+```{r}
+set.seed(3333)
+B <- 1000
+tstats_obj <- rowttests(edata, pdata$strain)
+tstat <- tstats_obj$statistic
+
+tstat0 <- matrix(NA, nrow = dim(edata)[1], ncol = B)    # initialize matrix to make null t stats, ncol = num permutations
+strain <- pdata$strain
+for(i in 1:B){
+    strain0 <- sample(strain)    # randomize labels
+    tstat0[,i] <- rowttests(edata, strain0)$statistic
+}
+
+emp_pvals <- empPvals(tstat, tstat0)
+hist(emp_pvals, col=2)
+```
+
+Now we need to correct for multiple testing. We can do some of these adjustments with the `p.adjust` function in R.
+
+The Bonferroni correction can be applied to control the family-wise error rate, the probability of even one false positive. We can apply this in `p.adjust` with `method="bonferroni"`.
+
+```{r}
+fp_bonf <- p.adjust(fstats_obj$p.value, method = "bonferroni")
+hist(fp_bonf, col=1)
+```
+
+```{r}
+quantile(fp_bonf)
+```
+
+To apply Bonferroni control, we ask for a family-wise error rate of 5% by selecting p < .05. (In this case there are none.)
+
+```{r}
+any(fp_bonf < 0.05)
+```
+
+
+We can also apply the Benjamini-Hochberg correction using `p.adjust` with `method="BH"`. This controls the false discovery rate. 
+
+```{r}
+fp_bh <- p.adjust(fstats_obj$p.value, method = "BH")
+hist(fp_bh, col=3)
+```
+
+```{r}
+quantile(fp_bh)
+```
+
+If we filter the Benjamini-Hochberg corrected p-values at .05, we get a false discovery rate of 5%. In this case, the number is also 0.
+
+```{r}
+sum(fp_bh < .05)
+```
+
+You can also do this quite easily with the **qvalue** package or **limma**.
+
+```{r}
+limma_pvals_adj <- topTable(ebayes_limma, number = dim(edata)[1])$adj.P.Val
+hist(limma_pvals_adj, col = 2)
+```
+
+```{r}
+quantile(limma_pvals_adj)
+```
+
+With **limma**, there are 2 differentially expressed features. Note these are Benjamini-Hochberg adjusted.
+
+
+```{r}
+sum(limma_pvals_adj < 0.05)
+```
+
+You can also apply `qvalue` directly to the p-values from **limma**, which also controls false discovery rate.
+
+```{r}
+qval_limma <- qvalue(limma_pvals)
+summary(qval_limma)    # for different pval or qval cutoffs, how many significnt
+qval$pi0    # proportion fitting null hypothesis
+```
+
+You can apply `qvalue` to the p-values from **edge** as well.
+
+```{r}
+qval <- qvalueObj(de_obj)
+summary(qval)
+```
+

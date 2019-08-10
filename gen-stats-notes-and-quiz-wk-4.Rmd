@@ -1,0 +1,508 @@
+---
+title: "gen-stats-notes-wk4"
+author: "Amy Gill"
+date: "4/27/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Gene set enrichment analysis
+
+```{r}
+library(DESeq2)
+library(goseq)
+```
+
+```{r}
+temp_data <- read.table(system.file("extdata", "Li_sum.txt", package = "goseq"), sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+expr <- temp_data[,-1]
+rownames(expr) <- temp_data[,1]
+expr <- expr[rowMeans(expr) > 5,]
+grp <- factor(rep(c("Control", "Treated"), times = c(4,3)))
+pdata <- data.frame(grp)
+```
+
+```{r}
+de <- DESeqDataSetFromMatrix(expr, pdata, ~grp)
+de_fit <- DESeq(de)
+de_results <- results(de_fit)
+```
+
+```{r}
+genes <- as.integer(de_results$padj < .05)
+not_na <- !is.na(genes)
+names(genes) <- rownames(expr)
+genes <- genes[not_na]
+```
+
+Calculate the probability weight function with `nullp` given the genome and designation that these are Ensembl genes
+
+```{r}
+pwf <- nullp(genes, "hg19", "ensGene")
+head(pwf)
+```
+
+
+```{r}
+GO.wall <- goseq(pwf, "hg19", "ensGene")
+head(GO.wall)
+```
+
+
+```{r}
+GO.MF <- goseq(pwf, "hg19", "ensGene", test.cats = c("GO:MF"))
+head(GO.MF)
+```
+
+
+## Process for RNA-seq
+
+*good RNA-seq conceptual slides*...not busy, simple enough
+
+Technical steps to get raw data
+- capture mature RNA by poly-A tail
+- reverse transcribe to cDNA
+- sequence
+
+1. **align** to the genome/transcriptome (HiSat, Star, Tophat2, Rail - all splice-aware software)
+2a. **count** the values that correpond to a particular gene (HTSeq, featureCounts, kallisto (no alignment), derfinder (single base resolution))
+2b. **assemble and quantify transcripts** rather than just counting annotated genes (StringTie/Cufflinks if genome known, Trinity if genome not known, RSEM takes a transcriptome and calculates abundances)
+3. **normalize and preprocess** - EDAseq/cqn for GC content, some built into DESeq2/edgeR, some built into Ballgown/derfinder batch effects in sva, RUVseq
+4. **statistical tests and modeling** - DESeq2/edgeR for count data, Ballgown end-to-end for transcript quantification data (after Cufflinks/RSEM), derfinder (single base resolution)
+5. **gene set enrichment** - goseq, SeqGSEA
+
+## Process for ChIP-seq
+
+Can be used many different ways, but here we measure the way in which proteins interact with DNA - amount of a given protein bound to particular locations on DNA
+
+Technical steps to get raw data
+- cross-link protein to DNA
+- fragment DNA
+- antibody pulldown of protein
+- release protein
+- sequence bound DNA
+
+1. **align** to the genome without splicing awareness (Bowtie2, BWA)
+2. **peak detection** of enriched DNA sections (CisGenome, MACS, PICS - PICS is bioc)
+3. **count** reads for a particular peak (CisGenome, MACS, diffbind - diffbind is bioc and can handle multi-sample or multi-group), note that there is a question as to how quantitative the technology is
+4. **normalize and preprocess** - diffbind, MAnorm
+5. **statistical tests and modeling** - (CisGenome, MACS, diffbind - diffbind is bioc)
+6. **identify sequence motifs and annotate sequences** - (CisGenome, meme-suite, BioC Annotation Workflow)
+
+## Process for DNA methylation
+
+A couple different methods: bisulfite sequencing and methylation arrays (still a lot of arrays in methylation studies)
+
+Technical steps to get raw data - bisulfite sequencing
+
+- split DNA into two aliquots
+- bisulfite conversion of one sample: Cs that aren't methylated become Us
+- sequence
+- compare bisulfite treated and untreated
+
+Technical steps to get raw data - methylation arrays
+- bisulfite conversion
+- hybridization to microarray
+- compare intensity of unmethylated probe and methylated probe
+
+1. **normalization** (minfi for both methods, charm for microarrays)
+2. **smoothing** so that regions with higher than expected methylation pop out (charm for arrays, bsseq for bisulfite seq)
+3. **region finding** - fit a statistical model that identifies and labels regions that are different between various samples/classes
+4. **annotation** - label components of the genome, CpG islands...have to account for biased placement of probes for microarrays (charm, bsseq, BioC Annotation Workflow)
+
+## Process for GWAS/WGS
+
+Goal: identify variants (SNVs, CNVs, deletion, insertion)
+
+Technical steps to get raw data
+- fragment DNA
+- sequence DNA or hybridize to microarrays
+
+1. **Variant identification** (crlmm for snp chips, freeBayes or GATK for seq)
+2. **Population stratification** to remove confounders (EIGENSOFT, snpStats)
+3. **Statistical tests** p values for every snp, Manhattan plots (PLINK, snpStats)
+4. **Examine local region** to try to identify causal variant (PLINK, Annotating Genomic Variants Workflow)
+5. **Annotation** (CADD identifies synonymous/nonsynonymous//splice/noncoding/regulatory/upstream/intergenic and projects whether variants are deleterious, variantAnnotation, Annotating Genomic Variants Workflow)
+
+## Process for combining data types (eQTL)
+
+integrative analysis to identify variations in DNA that correlate with variations in RNA (can do similar with proteomic vs RNA, RNA and methylation, ...)
+
+have:
+- snp data and position (associated with each gene)
+- gene expression data and gene position
+
+complicates multiple testing bc you are doing all possible SNPs versus all possible gene expression values
+
+eQTL: different genotypes have different RNA expression
+
+make a graph - x-axis is SNP position in genome, y-axis is mRNA position in genome
+- a diagonal trend along the identity line shows *cis-eQTLs*, which is where the SNP affects expression of a gene very close to its genomic location
+- vertical clusters of trends (stripes) show *trans-eQTLs* that seem to associate with many gene expression levels...often the stripes are artifacts like batch effects, but sometimes they are related to master regulator TFs
+
+**GTEx project** - multiple tissues from each of multiple donors, measure info about DNA seq, do eQTL analysis within and across tissues - http://www.sciencemag.org/content/348/6235/648
+
+- cis-eQTL are usually more believable than trans-eQTL
+- many potential confounders (population stratification, batch effects, sequence artifacts)
+
+excellent review: http://www.nature.com/nrg/journal/v16/n4/abs/nrg3891.html
+
+## eQTL in R
+
+```{r}
+library(MatrixEQTL)
+library(Biobase)
+library(broom)
+```
+
+From the **MatrixEQTL** package, we load SNP, expression and covariate data:
+
+```{r}
+base.dir <- find.package("MatrixEQTL")
+SNP_file_name <- paste(base.dir, "/data/SNP.txt", sep = "")
+expression_file_name <- paste(base.dir, "/data/GE.txt", sep = "")
+covariates_file_name <- paste(base.dir, "/data/Covariates.txt", sep = "")
+output_file_name = tempfile()
+```
+
+Read those files in with `read.table`:
+
+```{r}
+expr <- read.table(expression_file_name, sep = "\t", header = T, row.names = 1)
+
+expr[1,]
+```
+
+```{r}
+snps <- read.table(SNP_file_name, sep = "\t", header = T, row.names = 1)
+snps[1,]
+```
+
+```{r}
+cvrt <- read.table(covariates_file_name, sep = "\t", header = T, row.names = 1)
+cvrt[1,]
+```
+
+### eQTL basic idea
+
+The basic idea behind eQTL analysis is to do a linear regression relating gene expression information to genotype information.
+
+```{r}
+e1 <- as.numeric(expr[1,])
+s1 <- as.numeric(snps[1,])
+lm1 <- lm(e1 ~ s1)
+tidy(lm1)
+```
+
+```{r}
+par(pch = 15)
+plot(e1 ~ jitter(s1),
+     col = (s1+1),
+     xaxt = "n",
+     xlab = "Genotype",
+     ylab = "Expression")
+axis(1, at = c(0:2), labels = c("AA", "Aa", "aa"))
+lines(lm1$fitted ~ s1, type = "b", col="darkgrey")
+```
+
+### Multiple regressions with `MatrixEQTL`
+
+If you are doing regression models relating all SNPs to all gene expression levels, it will take a very long time, so instead we use `MatrixEQTL`.
+
+#### Set general parameters
+
+```{r}
+pvOutputThreshold <- 1e-2
+errorCovariance <- numeric()
+useModel <- modelLINEAR
+
+```
+
+
+Set the p-value threshold with `pvOutputThreshold`. One feature of `MatrixEQTL` is that it throws away any result below a certain p-value threshold. You should choose this to be as liberal as you need to make it potentially interesting. No need to apply severe corections at this point - if you leave it fairly broad you can also see distributions. 
+
+Setting `errorCovariance` to `numeric()` says to take an independence error model for gene expression variation. This is the most common assumption.
+
+You also need to specify which model to use, in this case `modelLINEAR`
+
+#### Set up files
+
+`MatrixEQTL` is very fast, but it can only do that if it is very set up about how it processes and analyzes the data. We have to set up some files and parameters for it to function well.
+
+First we set up and import the SNP data into a `SlicedData` object.
+
+```{r}
+snps <- SlicedData$new()    # make new SlicedData object
+snps$fileDelimiter <- "\t"    # specify delimiter of input file
+snps$fileOmitCharacters <- "NA"    # define missing value
+snps$fileSkipRows <- 1    # skip one header row
+snps$fileSkipColumns <- 1    # skip column of row names
+snps$fileSliceSize <- 2000    # read files in pieces of 2000 rows
+snps$LoadFile(SNP_file_name)    # input file name
+```
+
+Then we use very similar syntax to set up and import the gene expression data into a `SlicedData` object.
+
+```{r}
+gene <- SlicedData$new()    # make new SlicedData object
+gene$fileDelimiter <- "\t"    # specify delimiter of input file
+gene$fileOmitCharacters <- "NA"    # define missing value
+gene$fileSkipRows <- 1    # skip one header row
+gene$fileSkipColumns <- 1    # skip column of row names
+gene$fileSliceSize <- 2000    # read files in pieces of 2000 rows
+gene$LoadFile(expression_file_name)    # input file name
+```
+
+We could read in covariates in a similar way. In this case, we are going to ignore covariates by just creating a blank covariates `SlicedData` object.
+
+```{r}
+cvrt <- SlicedData$new()
+```
+
+#### Running the eQTL analysis
+
+Use `Matrix_eQTL_engine` on the three `SlicedData` objects for SNPs, gene expression and covariates.
+
+You can have it output to a file instead of directly into R by setting `output_file_name`, which is helpful when the analysis is long and you may want to run it in the background and return later.
+
+You can choose to store the p-value distribution for all SNPs with `pvalue.hist=TRUE`, which will slow it down and require a bit more memory but facilitate better analysis. It's suggested to always leave this `TRUE`.
+
+You can also ask it not to calculate the FDR by setting `noFDRsaveMemory = FALSE`. Here we will keep the FDR calculation.
+
+```{r}
+me <- Matrix_eQTL_engine(
+    snps = snps,
+    gene = gene,
+    cvrt = cvrt,
+    output_file_name = NULL,
+    pvOutputThreshold = pvOutputThreshold,
+    useModel = useModel,
+    errorCovariance = errorCovariance,
+    verbose = TRUE,
+    pvalue.hist = TRUE,
+    min.pv.by.genesnp = FALSE,
+    noFDRsaveMemory = FALSE)
+```
+
+This tends to be incredibly fast even if you do many analyses.
+
+First, you should plot the object. This gives you the p-value histogram for all $n$ tests, where $n$ is the number of genes times the number of SNPs (all combinations of SNPs and genes).
+
+```{r}
+plot(me)
+```
+
+The object that comes out has several components:
+
+```{r}
+names(me)
+```
+
+`time.in.sec` tells you how long it took to run.
+
+```{r}
+me$time.in.sec
+```
+
+`param` notes the parameters used to run the analysis, so you can save those.
+
+```{r}
+me$param
+```
+
+The `all` component has several additional levels:
+
+```{r}
+names(me$all)
+```
+
+Important ones include the number of tests (`ntests`) and the number of eQTLs discovered above the set significance threshold (`neqtls`):
+
+```{r}
+me$all$ntests
+```
+
+```{r}
+me$all$neqtls
+```
+
+Information about the eQTLs can be found as `eqtls`, including the SNP ID, gene name, statistic, p-value, FDR and beta statistic:
+
+```{r}
+me$all$eqtls
+```
+
+At this point you would go back and try to discern whether there are any artifacts, whether the plots look reasonable, but this is the first step.
+
+## Researcher degrees of freedom
+
+This idea originated in psychology that undisclosed flexibility in data collection and analysis allows for presenting anything as statistically significant. Your results are shaped by *researcher degrees of freedom*, the decisions scientists make as the conduct a study.
+
+Historically, there has been a lot of pressure to get statistically significant p-values so that they are publishable. The p-values themselves get extreme scrutiny, but the modeling steps that lead to those p-values often get little questioning. This is a long pipeline with many moving parts (data collection, cleaning, EDA, statistical modeling, inference), and any part can introduce variability or bias into the final p-value. If you normalize the data differently or discard different outliers, you change the result.
+
+The danger here is that you can keep doing an analysis multiple different ways and seem to get a different result due to very small choices.
+
+Be very careful about redoing the analysis too many times. It makes sense when there is new software or new scientific knowledge to incorporate, but it can be very easy to fall into the trap of minor tweaking.
+
+You should go into your analysis with a plan. If you start changing the way you analyze the data based on what you see in the data, you can get into problems.
+
+Some ways to avoid the traps of researcher degrees of freedom:
+- Have a specific hypothesis
+- Pre-specify your analysis plan
+- Use training/testing sets (note that there is often not enough data in genomics to do this)
+- Analyze your data only once or report all analyses
+
+## Inference vs Prediction in genomics
+
+Inference - are two populations different?
+
+You can have different but not predictive
+or different and predictive - if the distributions largely overlap but have different means, then prediction may not work, but if the distributions are extremely differnt and hardly overlapping then prediction could be possible.
+
+For prediction, key definitions matter:
+
+* **sensitivity** - Pr(positive test | disease) = TP/(TP+FN)
+* **specificity** - Pr(negative test | no disease) = TN/(FP+TN)
+* **positive predictive value** - Pr(disease | positive test) = TP/(TP+FP)
+* **negative predictive value** - Pr(no disease | negative test) = TN/(TN+FN)
+* **accuracy** - Pr(correct outcome) = (TP+TN)/(TP+TN+FP+FN)
+
+Consider a disease with a 0.1% prevalence and a test for that disease with 99% specificity and 99% sensitivity - 99% of the time the test will be correct regardless of whether you actually have the disase. What is the positive predictive value in a) the general population or b) a high-risk population?
+
+a) Reg: TP = 99, FN = 1, TN = 98901, FP = 999
+PPV = TP/(TP+FP) = 99/(99+999) = 9%
+bad test because you are testing so many people without the disease
+
+You can see how even with a really good test, you have lots of false positives given a rare disease. So what if we predict a subgroup that is much more likely to get the disease?
+
+b) Reg: TP = 9900, FN = 100, TN = 89100, FP = 900
+PPV = TP/(TP+FP) = 9900/(9900+900) = 92%
+
+Now your PPV is quite good.
+
+
+
+
+**Prediction with genomics underlies precision medicine.**
+
+
+
+## Question 1
+
+```{r}
+library(goseq)
+supportedGenomes()
+```
+
+The paper used NCBI Build 37 of the mouse genome, which has the code `mm9`.
+
+## Question 2
+
+Load the Bottomly data with the following code and perform a differential expression analysis using \verb|limma|limma with only the strain variable as an outcome. How many genes are differentially expressed at the 5% FDR level using Benjamini-Hochberg correction? What is the gene identifier of the first gene differentially expressed at this level (just in order, not the smallest FDR) ? (hint: the \verb|featureNames|featureNames function may be useful)
+
+
+```{r}
+library(Biobase)
+library(limma)
+con =url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData")
+load(file=con)
+close(con)
+bot = bottomly.eset
+pdata_bot=pData(bot)
+fdata_bot = featureData(bot)
+edata = exprs(bot)
+fdata_bot = fdata_bot[rowMeans(edata) > 5]
+edata = edata[rowMeans(edata) > 5, ]
+edata = log2(edata+1)
+```
+```{r}
+mod <- model.matrix(~pdata_bot$strain)
+fit <- lmFit(edata, mod)
+ebayes_limma <- eBayes(fit)
+results <- topTable(ebayes_limma, number = dim(edata)[1], adjust.method = "BH", sort = "none")
+results
+
+
+p_under_pt05 <- results[results$adj.P.Val < .05,]
+nrow(p_under_pt05)
+rownames(p_under_pt05)[1]
+```
+
+**223 genes under .05, first gene ID ends 402**
+
+## Question 3
+
+Use the \verb|nullp|nullp and \verb|goseq|goseq functions in the \verb|goseq|goseq package to perform a gene ontology analysis. What is the top category that comes up as over represented? (hint: you will need to use the genome information on the genome from question 1 and the differential expression analysis from question 2.
+
+
+
+```{r}
+pvals_adj <- results$adj.P.Val
+genes <- as.integer(pvals_adj < .05)
+names(genes) <- rownames(edata)
+pwf = nullp(genes, "mm9", "ensGene")
+GO_all <- goseq(pwf, "mm9", "ensGene")
+top10_unadj <- GO_all[1:10,]
+top10_unadj
+```
+
+**GO: 0004888**
+
+## Question 4
+
+**transmembrane signaling receptor activity**
+
+
+## Question 5
+
+Load the Bottomly data with the following code and perform a differential expression analysis using \verb|limma|limma and treating strain as the outcome but adjusting for lane as a factor. Then find genes significant at the 5% FDR rate using the Benjamini Hochberg correction and perform the gene set analysis with \verb|goseq|goseq following the protocol from the first 4 questions. How many of the top 10 overrepresented categories are the same for the adjusted and unadjusted analysis?
+
+```{r}
+mod2 <- model.matrix(~pdata_bot$strain + pdata_bot$lane.number)
+fit2 <- lmFit(edata, mod2)
+ebayes_limma2 <- eBayes(fit2)
+results2 <- topTable(ebayes_limma2, number = dim(edata)[1], adjust.method = "BH", sort = "none")
+
+pvals_adj2 <- results2$adj.P.Val
+genes2 <- as.integer(pvals_adj2 < .05)
+names(genes2) <- rownames(edata)
+pwf2 = nullp(genes2, "mm9", "ensGene")
+GO_adj <- goseq(pwf2, "mm9", "ensGene")
+top10_adj <- GO_adj[1:10,]
+top10_adj
+```
+
+
+```{r}
+top10_unadj
+sum(top10_adj$category %in% top10_unadj$category)
+```
+
+It's supposed to be 2? I don't see why.
+
+
+```{r}
+mod_adj = model.matrix(~ pdata_bot$strain + pdata_bot$lane.number)
+fit_limma_adj = lmFit(edata, mod_adj)
+ebayes_limma_adj = eBayes(fit_limma_adj)
+limma_output_adj = topTable(ebayes_limma_adj, number = dim(edata)[1], adjust.method="BH",sort="none")
+limma_pvals_adj_adj = limma_output_adj$adj.P.Val
+hist(limma_pvals_adj_adj, col = 2)
+sum(limma_pvals_adj_adj < 0.05)
+#get differential expressed gene list
+genes_adj = as.integer(limma_pvals_adj_adj < 0.05)
+not_na = !is.na(genes_adj)
+names(genes_adj) = rownames(edata)
+genes_adj = genes_adj[not_na]
+head(genes_adj)
+#find common GO category between non-correction and corrected with lanes
+pwf_adj=nullp(genes_adj,"mm9","ensGene")
+head(pwf)
+GO.wall_adj=goseq(pwf_adj,"mm9","ensGene")
+GO.top10_adj = GO.wall_adj[1:10,1]
+length(intersect(GO.top10, GO.top10_adj))
+```
+
