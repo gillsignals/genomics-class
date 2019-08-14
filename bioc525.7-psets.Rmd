@@ -841,3 +841,454 @@ y = getBeta(dat)
 shist(y)
 ```
 
+```{r}
+mds = cmdscale( dist(t(y)))
+tissue = as.factor(pData(dat)$Tissue)
+plot(mds,col=tissue)
+```
+
+```{r}
+library(limma)
+##create design matrix
+tissue = as.factor(pData(dat)$Tissue)
+X = model.matrix(~tissue)
+##extract methylation values
+y = getBeta(dat)
+## obtain effect sizes and pvals with limma
+fit = lmFit(y,X)
+```
+
+```{r}
+index = which.max(abs( fit$coef[,2]))
+seqnames(dat)[index]
+start(dat)[index]
+```
+
+### Q4
+
+```{r}
+library(qvalue)
+##create design matrix
+tissue = as.factor(pData(dat)$Tissue)
+X = model.matrix(~tissue)
+##extract methylation values
+y = getBeta(dat)
+## obtain effect sizes and pvals with limma
+fit = lmFit(y,X)
+eb = eBayes(fit)
+## obtain q-values
+qvals = qvalue(eb$p.value[,2])$qvalue
+```
+
+```{r}
+##When reporting such small p-values 
+##there is no need to show exactly how small it is
+## so we can say < 10^-6
+index = which.max(abs( fit$coef[,2]))
+qvals[index]
+```
+
+### Q5
+
+```{r}
+library(rafalib)
+mypar(3,1)
+index = which.max(abs( fit$coef[,2]))
+gr=granges(dat)[index]+5000
+index=which(granges(dat)%over%gr)
+pos= start(dat)[index]
+
+matplot(pos,y[index,],ylab="Methylation",col=as.numeric(tissue))
+
+plot(pos, fit$coef[index,2],ylab="Effect Size")
+
+plot(pos, -log10(qvals[index]) ,ylab="-log10 q-value")
+```
+
+### Q6
+
+```{r}
+library(rafalib)
+mypar(3,1)
+o = order(abs(fit$coef[,2]), decreasing = TRUE)[1:10]
+for(i in o){
+  index = i
+  gr=granges(dat)[index]+5000
+  index=which(granges(dat)%over%gr)
+  pos= start(dat)[index]
+
+  matplot(pos,y[index,,drop=FALSE],ylab="Methylation",col=as.numeric(tissue))
+
+  plot(pos, fit$coef[index,2],ylab="Effect Size")
+
+  plot(pos, -log10(qvals[index]) ,ylab="-log10 q-value")
+}
+```
+
+### Q7
+
+```{r}
+index= which(seqnames(dat)=="chr15")
+dat2 = dat[index,]
+library(doParallel)
+ncores = detectCores()
+registerDoParallel(cores = ncores)
+```
+
+```{r}
+##create design matrix
+tissue = as.factor(pData(dat)$Tissue)
+X = model.matrix(~tissue)
+##extract methylation values
+set.seed(1)
+res = bumphunter(dat2,X,cutoff=0.1,B=100)
+head(res$tab)
+```
+
+```{r}
+sum(res$table$fwer < 0.05)
+```
+
+### Q8
+
+```{r}
+##fit and qvals were defined in a previous answer
+index = which(qvals < 0.05 & abs(fit$coef[,2]) > 0.5 & seqnames(dat)=="chr15")
+```
+
+```{r}
+tab = res$tab[ res$tab$L >= 3,]
+tab = makeGRangesFromDataFrame(tab)
+```
+
+```{r}
+mean(granges(dat[index,])%over% tab)
+```
+
+### Q9
+
+```{r}
+library(AnnotationHub)
+cgi = AnnotationHub()[["AH5086"]]
+```
+
+```{r}
+tab = res$tab[res$tab$fwer <= 0.05,]
+tab = makeGRangesFromDataFrame(tab)
+```
+
+```{r}
+map=distanceToNearest(tab,cgi)
+d = mcols(map)$dist
+mean( d<=2000 & d>0)
+```
+
+### Q10
+
+```{r}
+targets=read.delim(file.path (path,"targets.txt"),as.is=TRUE)
+index = which( targets$Status=="normal" & targets$Tissue%in%c("colon","lung") )
+targets = targets[index,]
+```
+
+```{r}
+library(minfi)
+dat = read.metharray.exp(base=path,targets = targets, verbose=TRUE)
+```
+
+```{r}
+## preprocess the data
+dat = preprocessIllumina(dat)
+dat = mapToGenome(dat)
+dat = ratioConvert(dat,type="Illumina")
+```
+
+```{r}
+tissue=pData(dat)$Tissue
+X = model.matrix(~tissue)
+res = bumphunter(dat,X,cutoff=0.25)
+nrow(res$tab)
+```
+
+```{r}
+mean(res$tab$L==1)
+```
+
+### Q11
+
+```{r}
+load(file.path(path,"tcgaLungColonExpLM.rda"))
+class(tcgaLungColonExpLM)
+```
+
+```{r}
+print( annotation )  
+```
+
+```{r}
+library(limma)
+library(qvalue)
+eb=eBayes(tcgaLungColonExpLM)
+qvals=qvalue(eb$p.value[,2])$qvalue
+```
+
+```{r}
+library(hgu133plus2.db)
+map=select(hgu133plus2.db,keys=rownames(tcgaLungColonExpLM$coef),columns=c("ENTREZID"),keytype="PROBEID")
+
+library(Homo.sapiens)
+Genes=genes(Homo.sapiens)
+Genes=resize(Genes,1) ## we want the tss
+
+index1=match(as.character(mcols(Genes)$GENEID),map$ENTREZID)
+index2 = match(map$PROBEID[index1],rownames(tcgaLungColonExpLM$coef))
+M = tcgaLungColonExpLM$coef[index2,2]
+```
+
+```{r}
+tab=makeGRangesFromDataFrame(res$tab,keep.extra.columns = TRUE)
+map2=distanceToNearest(tab,Genes)
+```
+
+```{r}
+index1=subjectHits(map2)
+dist = mcols(map2)$dist
+
+
+keep = dist< 10000 & tab$L>0
+M[index1]
+plot(tab$value,M[index1],main=paste("cor=",signif(cor(tab$value[keep],M[index1][keep],use="complete"),2)))
+
+
+mypar(2,2)
+for(i in c(0,1,2,3)){
+  keep = dist< 10000 & tab$L>i
+  plot(tab$value,M[index1],main=paste("cor=",signif(cor(tab$value,M[index1],use="complete"),2)))
+}
+
+
+library(rafalib)
+mypar(2,2)
+for(i in c(0,1,2,3)){
+  keep = dist< 10000 & tab$L>i
+  plot(tab$value[keep],M[index1][keep],main=paste("cor=",signif(cor(tab$value[keep],M[index1][keep],use="complete"),2)))
+}
+```
+
+## Cell composition assessment
+
+### Q1
+
+```{r}
+library(minfi)
+grset=getGenomicRatioSetFromGEO("GSE32148")
+```
+
+```{r}
+class(grset)
+```
+
+```{r}
+##examine the outcome of this:
+pData(grset)[1,]
+## note age is here
+pData(grset)[1,"characteristics_ch1.1"]
+```
+
+### Q2
+
+```{r}
+age=pData(grset)$characteristics_ch1.1
+age=as.character(age)
+age[grep("N/A",age)] = NA
+age=as.numeric(gsub("age \\(y\\):\ ","",age))
+```
+
+```{r}
+group = rep("normal",nrow(pData(grset)))
+group[grepl("ulcerative",pData(grset)[,1])]="ulcerative"
+group[grepl("Crohn",pData(grset)[,1])]="crohn"
+group = factor(group,levels=c("normal","ulcerative","crohn"))
+```
+
+```{r}
+keep = which(rowSums(is.na(getBeta(grset)))==0 &
+               !seqnames(grset)%in%c("chrX","chrY"))
+##create a new object 
+grset2=grset[keep,]
+```
+
+```{r}
+y = getBeta(grset2)
+mds = cmdscale( dist( t(y)))
+mypar(1,1)
+col=ifelse(age>40,1,2)
+plot(mds,pch=as.numeric(group),col=col)
+legend("bottomleft",levels(group),pch=seq_along(group))
+```
+
+## Blocks assessment
+
+### Q1
+
+```{r}
+library(minfi)
+targets=read.delim(file.path (path,"targets.txt"),as.is=TRUE)
+index = which( targets$Tissue=="colon")
+targets = targets[index,]
+dat = read.metharray.exp(base=path,targets = targets, verbose=TRUE)
+```
+
+```{r}
+dat = preprocessIllumina(dat)
+dat = mapToGenome(dat)
+```
+
+```{r}
+cdat = cpgCollapse(dat)
+```
+
+```{r}
+nrow(dat)
+```
+
+```{r}
+nrow(cdat$obj)
+```
+
+### Q2
+
+```{r}
+head(granges(cdat$obj))
+```
+
+```{r}
+prop.table(table(mcols( granges(cdat$obj))$type))
+```
+
+### Q3
+
+```{r}
+status = factor(pData(cdat$obj)$Status,
+                level=c("normal","cancer"))
+X=model.matrix(~status)
+res = blockFinder(cdat$obj,X,cutoff=0.05)
+```
+
+```{r}
+head(res$table)
+```
+
+```{r}
+mean(res$table$value<0)
+```
+
+```{r}
+tab=makeGRangesFromDataFrame(res$table)
+index= granges(cdat$obj)%over% (tab[1]+10000)
+pos=start(cdat$obj)[index]
+col=as.numeric(status)
+matplot(pos,getBeta(cdat$obj)[index,],col=col,pch=1,cex=0.5)
+##and these are the estimated difference
+plot(pos,res$fitted[index])
+```
+
+## Measuring methylation from sequencing
+
+### Q1
+
+```{r}
+library("BSgenome.Hsapiens.UCSC.hg19")
+chr22 = Hsapiens[["chr22"]]
+```
+
+```{r}
+res=matchPattern("CCGG",chr22)
+length(res)
+```
+
+### Q2
+
+```{r}
+size=diff(start(res))
+hist(log10(size))
+```
+
+### Q3
+
+```{r}
+mean(size<=220 & size>=40)
+```
+
+### Q4
+
+```{r}
+sum( size[size<=220 & size>=40] )
+```
+
+### Q5
+
+```{r}
+path <- "C:/Users/bioch/Downloads/colonCancerWGBS-master"
+targets = read.table(file.path(path,"targets.txt"), header = TRUE, sep = "\t")
+targets
+```
+
+```{r}
+library("bsseq")
+cov.files = list.files(path=path,pattern="*chr22.cov",full.names=TRUE)  # coverage files
+colonCancerWGBS =read.bismark(files=cov.files, rmZeroCov=TRUE, colData = DataFrame(targets))
+###Note you might see a warning message here. You can ignore.
+```
+
+```{r}
+colonCancerWGBS
+
+# phenotypic information
+pData(colonCancerWGBS)
+
+# granges object
+granges(colonCancerWGBS)
+
+cov=getCoverage(colonCancerWGBS,type = "Cov")
+m=getCoverage(colonCancerWGBS,type = "M")
+```
+
+```{r}
+index=apply(cov>0,1,all)
+mean(index)
+```
+
+### Q6
+
+```{r}
+tot = rowSums(cov)
+##there are some very large values
+hist(tot)
+loc= start(colonCancerWGBS)
+##plot by pieces
+for(i in 1:11){
+  index=1:100000+100000*i ##very ad-hoc
+  plot(loc[index],tot[index],cex=.5,ylim=c(0,300))
+}
+```
+
+### Q7
+
+```{r}
+cov=getCoverage(colonCancerWGBS,type = "Cov")
+m=getCoverage(colonCancerWGBS,type = "M")
+```
+
+```{r}
+gr = GRanges(seqnames="22",ranges=IRanges(start=43793678,end= 45022550))
+index=granges(colonCancerWGBS)%over%gr
+library(rafalib)
+i=1
+index2=which(index & cov[,i]>=5 & cov[,i]<=50)
+x=start(colonCancerWGBS)[index2]
+y=m[index2,i]/cov[index2,i]
+w=sqrt(cov[index2,i])/7
+plot(x,y,cex=w)
+```
+

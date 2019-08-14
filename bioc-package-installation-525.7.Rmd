@@ -19,6 +19,7 @@ BiocManager::install("sva")
 BiocManager::install("pasilla")
 BiocManager::install("DEXSeq")
 BiocManager::install("cummeRbund")
+BiocManager::install("bsseq")
 
 library(devtools)
 install_github("genomicsclass/coloncancermeth")
